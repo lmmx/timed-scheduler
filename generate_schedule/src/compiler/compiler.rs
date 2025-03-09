@@ -213,13 +213,13 @@ impl TimeConstraintCompiler {
         // Apply only daily bounds
         for clock_info in self.clocks.values() {
             test_zone.add_constraint(Constraint::new_ge(clock_info.variable, 0));
-            test_zone.add_constraint(Constraint::new_le(clock_info.variable, 1439));
+            test_zone.add_constraint(Constraint::new_le(clock_info.variable, 1440));
         }
 
         if test_zone.is_empty() {
             self.debug_error(
                 "⚠️",
-                "Even basic daily bounds (0-1439) lead to infeasibility!",
+                "Even basic daily bounds (0-1440) lead to infeasibility!",
             );
             return;
         }
@@ -232,7 +232,7 @@ impl TimeConstraintCompiler {
         // Apply daily bounds
         for clock_info in self.clocks.values() {
             test_zone.add_constraint(Constraint::new_ge(clock_info.variable, 0));
-            test_zone.add_constraint(Constraint::new_le(clock_info.variable, 1439));
+            test_zone.add_constraint(Constraint::new_le(clock_info.variable, 1440));
         }
 
         // Group clocks by entity
@@ -528,7 +528,7 @@ impl TimeConstraintCompiler {
                 .add_constraint(Constraint::new_ge(clock_info.variable, 0));
             // Not after 23:59
             self.zone
-                .add_constraint(Constraint::new_le(clock_info.variable, 1439));
+                .add_constraint(Constraint::new_le(clock_info.variable, 1440));
 
             self.debug_print("⏱️", &format!("Set bounds for {}: [0:00, 23:59]", clock_id));
         }
@@ -689,135 +689,6 @@ impl TimeConstraintCompiler {
         }
     }
 
-    fn apply_constraint(
-        &mut self,
-        entity_name: &str,
-        constraint: &ConstraintExpression,
-    ) -> Result<(), String> {
-        // Convert time value to minutes
-        let time_in_minutes = constraint.time_unit.to_minutes(constraint.time_value) as i64;
-
-        // Get all clocks for this entity
-        let entity_clocks: Vec<Variable> = self
-            .clocks
-            .values()
-            .filter(|c| c.entity_name == entity_name)
-            .map(|c| c.variable)
-            .collect();
-
-        match &constraint.constraint_type {
-            ConstraintType::Apart => {
-                // Apply spacing constraint between instances of the same entity
-                if entity_clocks.len() <= 1 {
-                    // No constraints needed for single instance
-                    return Ok(());
-                }
-
-                for i in 0..entity_clocks.len() {
-                    for j in i + 1..entity_clocks.len() {
-                        // Get clock names for better logging
-                        let name_i = self
-                            .find_clock_name(entity_clocks[i])
-                            .unwrap_or_else(|| format!("clock_{}", i));
-                        let name_j = self
-                            .find_clock_name(entity_clocks[j])
-                            .unwrap_or_else(|| format!("clock_{}", j));
-
-                        // Ensure minimum spacing from i to j
-                        let hours = time_in_minutes / 60;
-                        let mins = time_in_minutes % 60;
-                        let description_i_to_j = format!(
-                            "{} must be ≥{}h{}m apart from {} (forward)",
-                            name_i, hours, mins, name_j
-                        );
-                        let success_i_to_j = self.add_constraint_safely(
-                            || {
-                                Constraint::new_diff_ge(
-                                    entity_clocks[i],
-                                    entity_clocks[j],
-                                    time_in_minutes,
-                                )
-                            },
-                            &description_i_to_j,
-                        );
-
-                        // Only try the other direction if the first one was successful
-                        if success_i_to_j {
-                            // Ensure minimum spacing from j to i
-                            let description_j_to_i = format!(
-                                "{} must be ≥{}h{}m apart from {} (backward)",
-                                name_j, hours, mins, name_i
-                            );
-
-                            self.add_constraint_safely(
-                                || {
-                                    Constraint::new_diff_ge(
-                                        entity_clocks[j],
-                                        entity_clocks[i],
-                                        time_in_minutes,
-                                    )
-                                },
-                                &description_j_to_i,
-                            );
-                        }
-                    }
-                }
-            }
-
-            ConstraintType::Before | ConstraintType::After | ConstraintType::ApartFrom => {
-                // Get reference clocks based on the constraint reference
-                let reference_clocks = match &constraint.reference {
-                    ConstraintReference::Unresolved(reference_str) => {
-                        self.resolve_reference(reference_str)?
-                    }
-                    ConstraintReference::WithinGroup => {
-                        return Err("WithinGroup reference should not be used here".to_string())
-                    }
-                };
-
-                for &entity_clock in &entity_clocks {
-                    for &reference_clock in &reference_clocks {
-                        match constraint.constraint_type {
-                            ConstraintType::Before => {
-                                // Entity must be scheduled at least X minutes before reference
-                                self.zone.add_constraint(Constraint::new_diff_ge(
-                                    reference_clock,
-                                    entity_clock,
-                                    time_in_minutes,
-                                ));
-                            }
-                            ConstraintType::After => {
-                                // Entity must be scheduled at least X minutes after reference
-                                self.zone.add_constraint(Constraint::new_diff_ge(
-                                    entity_clock,
-                                    reference_clock,
-                                    time_in_minutes,
-                                ));
-                            }
-                            ConstraintType::ApartFrom => {
-                                // Entity must be separated from reference by at least X minutes
-                                // in either direction
-                                self.zone.add_constraint(Constraint::new_diff_ge(
-                                    entity_clock,
-                                    reference_clock,
-                                    time_in_minutes,
-                                ));
-                                self.zone.add_constraint(Constraint::new_diff_ge(
-                                    reference_clock,
-                                    entity_clock,
-                                    time_in_minutes,
-                                ));
-                            }
-                            _ => unreachable!(),
-                        }
-                    }
-                }
-            }
-        }
-
-        Ok(())
-    }
-
     // Extract a concrete schedule from the zone
     pub fn extract_schedule(&self) -> Result<HashMap<String, i32>, String> {
         if self.zone.is_empty() {
@@ -833,7 +704,7 @@ impl TimeConstraintCompiler {
             let upper = self
                 .zone
                 .get_upper_bound(clock_info.variable)
-                .unwrap_or(1439);
+                .unwrap_or(1440);
 
             // Choose a time in the middle of the feasible range
             let time_in_minutes = ((lower + upper) / 2) as i32;

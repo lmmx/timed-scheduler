@@ -71,16 +71,6 @@ pub fn example() -> Result<(), String> {
             "[]",
             "with food",
         ],
-        // vec![
-        //     "Omeprazole",
-        //     "med",
-        //     "capsule",
-        //     "null",
-        //     "null",
-        //     "1x daily",
-        //     "[\"≥30m before food\"]",
-        //     "null",
-        // ],
         vec![
             "Chicken and rice",
             "food",
