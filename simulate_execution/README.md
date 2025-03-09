@@ -1,8 +1,6 @@
-# timed schedule
+# Simulate execution
 
-## Simulate execution
-
-Using the clock-zones crate for timed automata: `simulate_execution`
+> Using the clock-zones crate for timed automata
 
 This is the least interesting way to use symbolic representations of time constraints
 but also the most obviously practical one.
