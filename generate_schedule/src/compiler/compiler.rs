@@ -592,12 +592,11 @@ impl TimeConstraintCompiler {
                     ),
                 );
 
-                // Apply minimum spacing based on frequency
-                let min_spacing = match entity.frequency {
-                    Frequency::TwiceDaily => 6 * 60,      // 6 hours in minutes
-                    Frequency::ThreeTimesDaily => 4 * 60, // 4 hours in minutes
-                    Frequency::EveryXHours(hours) => (hours as i64) * 60,
-                    _ => 60, // Default 1 hour minimum spacing
+                // Apply minimum spacing only if specified
+                let min_spacing = if let Some(spacing) = entity.min_spacing {
+                    spacing as i64
+                } else {
+                    0 // no default enforced spacing
                 };
 
                 self.zone

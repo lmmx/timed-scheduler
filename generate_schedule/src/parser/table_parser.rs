@@ -1,5 +1,5 @@
-use regex::Regex;
 use crate::types::entity::Entity;
+use regex::Regex;
 
 // Function to parse from the tabular format shown in the example
 pub fn parse_from_table(rows: Vec<Vec<&str>>) -> Result<Vec<Entity>, String> {
@@ -35,6 +35,9 @@ pub fn parse_from_table(rows: Vec<Vec<&str>>) -> Result<Vec<Entity>, String> {
 
         let frequency = row[5];
 
+        // Parse min_spacing (int or null)
+        let min_spacing = Some(0);
+
         // Parse constraints array (from string to vec)
         let constraints_str = row[6].trim();
         let constraints = if constraints_str == "[]" {
@@ -64,6 +67,7 @@ pub fn parse_from_table(rows: Vec<Vec<&str>>) -> Result<Vec<Entity>, String> {
             amount,
             split,
             frequency,
+            min_spacing,
             constraints.iter().map(|s| s.as_str()).collect(),
             note,
         )?);
