@@ -136,9 +136,8 @@ pub struct ConstraintExpression {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum ConstraintReference {
-    Entity(String),   // Reference to a specific entity by name
-    Category(String), // Reference to all entities in a category
-    WithinGroup,      // For 'apart' constraints within recurring instances
+    Unresolved(String), // A specific entity by name or all in a category (resolved later)
+    WithinGroup,        // For 'apart' constraints within recurring instances
 }
 
 impl ConstraintExpression {
@@ -157,39 +156,39 @@ impl ConstraintExpression {
                 .parse()
                 .map_err(|_| "Invalid time value".to_string())?;
             let time_unit = TimeUnit::from_str(&caps[2])?;
-            let reference = parse_reference(&caps[3])?;
+            let reference_str = parse_reference(&caps[3])?;
 
             Ok(ConstraintExpression {
                 time_value,
                 time_unit,
                 constraint_type: ConstraintType::Before,
-                reference,
+                reference: ConstraintReference::Unresolved(reference_str),
             })
         } else if let Some(caps) = after_re.captures(expr) {
             let time_value: u32 = caps[1]
                 .parse()
                 .map_err(|_| "Invalid time value".to_string())?;
             let time_unit = TimeUnit::from_str(&caps[2])?;
-            let reference = parse_reference(&caps[3])?;
+            let reference_str = parse_reference(&caps[3])?;
 
             Ok(ConstraintExpression {
                 time_value,
                 time_unit,
                 constraint_type: ConstraintType::After,
-                reference,
+                reference: ConstraintReference::Unresolved(reference_str),
             })
         } else if let Some(caps) = apart_from_re.captures(expr) {
             let time_value: u32 = caps[1]
                 .parse()
                 .map_err(|_| "Invalid time value".to_string())?;
             let time_unit = TimeUnit::from_str(&caps[2])?;
-            let reference = parse_reference(&caps[3])?;
+            let reference_str = parse_reference(&caps[3])?;
 
             Ok(ConstraintExpression {
                 time_value,
                 time_unit,
                 constraint_type: ConstraintType::ApartFrom,
-                reference,
+                reference: ConstraintReference::Unresolved(reference_str),
             })
         } else if let Some(caps) = apart_re.captures(expr) {
             let time_value: u32 = caps[1]
@@ -209,16 +208,8 @@ impl ConstraintExpression {
     }
 }
 
-fn parse_reference(reference: &str) -> Result<ConstraintReference, String> {
-    let reference = reference.trim().to_lowercase();
-
-    if reference.starts_with("category:") {
-        let category = reference.trim_start_matches("category:").trim();
-        Ok(ConstraintReference::Category(category.to_string()))
-    } else {
-        // Default to an entity reference
-        Ok(ConstraintReference::Entity(reference.to_string()))
-    }
+fn parse_reference(reference: &str) -> Result<String, String> {
+    Ok(reference.trim())
 }
 
 // Compiler from DSL to clock-zones
@@ -448,7 +439,14 @@ impl TimeConstraintCompiler {
 
             ConstraintType::Before | ConstraintType::After | ConstraintType::ApartFrom => {
                 // Get reference clocks based on the constraint reference
-                let reference_clocks = self.get_reference_clocks(&constraint.reference)?;
+                let reference_clocks = match &constraint.reference {
+                    ConstraintReference::Unresolved(reference_str) => {
+                        self.resolve_reference(reference_str)?
+                    }
+                    ConstraintReference::WithinGroup => {
+                        return Err("WithinGroup reference should not be used here".to_string())
+                    }
+                };
 
                 for &entity_clock in &entity_clocks {
                     for &reference_clock in &reference_clocks {
@@ -645,6 +643,40 @@ impl TimeConstraintCompiler {
 
         result
     }
+
+    fn resolve_reference(&self, reference_str: &str) -> Result<Vec<Variable>, String> {
+        // First try to find it as an entity (exact match)
+        let entity_clocks: Vec<Variable> = self
+            .clocks
+            .values()
+            .filter(|c| c.entity_name() == reference_str)
+            .map(|c| c.variable)
+            .collect();
+
+        if !entity_clocks.is_empty() {
+            return Ok(entity_clocks);
+        }
+
+        // If not found as entity, try as a category
+        if let Some(entities) = self.categories.get(reference_str) {
+            let category_clocks: Vec<Variable> = self
+                .clocks
+                .values()
+                .filter(|c| entities.contains(&c.entity_name))
+                .map(|c| c.variable)
+                .collect();
+
+            if !category_clocks.is_empty() {
+                return Ok(category_clocks);
+            }
+        }
+
+        // If still not found, return an error
+        Err(format!(
+            "Could not resolve reference '{}' - not found as entity or category",
+            reference_str
+        ))
+    }
 }
 
 // Function to parse from the tabular format shown in the example
@@ -714,7 +746,7 @@ pub fn parse_from_table(rows: Vec<Vec<&str>>) -> Result<Vec<Entity>, String> {
 }
 
 // Example of usage with the provided table data
-fn example() -> Result<(), String> {
+pub fn example() -> Result<(), String> {
     // This would come from parsing the table
     let table_data = vec![
         vec![
