@@ -209,7 +209,7 @@ impl ConstraintExpression {
 }
 
 fn parse_reference(reference: &str) -> Result<String, String> {
-    Ok(reference.trim())
+    Ok(reference.trim().to_string())
 }
 
 // Compiler from DSL to clock-zones
@@ -491,55 +491,6 @@ impl TimeConstraintCompiler {
         Ok(())
     }
 
-    fn get_reference_clocks(
-        &self,
-        reference: &ConstraintReference,
-    ) -> Result<Vec<Variable>, String> {
-        match reference {
-            ConstraintReference::Entity(name) => {
-                // Get clocks for a specific entity
-                let clocks = self
-                    .clocks
-                    .values()
-                    .filter(|c| c.entity_name == *name)
-                    .map(|c| c.variable)
-                    .collect::<Vec<_>>();
-
-                if clocks.is_empty() {
-                    return Err(format!("No clocks found for entity: {}", name));
-                }
-
-                Ok(clocks)
-            }
-
-            ConstraintReference::Category(category) => {
-                // Get clocks for all entities in a category
-                let entities = self
-                    .categories
-                    .get(category)
-                    .ok_or_else(|| format!("Category not found: {}", category))?;
-
-                let clocks = self
-                    .clocks
-                    .values()
-                    .filter(|c| entities.contains(&c.entity_name))
-                    .map(|c| c.variable)
-                    .collect::<Vec<_>>();
-
-                if clocks.is_empty() {
-                    return Err(format!("No clocks found for category: {}", category));
-                }
-
-                Ok(clocks)
-            }
-
-            ConstraintReference::WithinGroup => {
-                // This should not be called directly - handled by the Apart constraint
-                Err("WithinGroup reference should not be accessed directly".to_string())
-            }
-        }
-    }
-
     // Extract a concrete schedule from the zone
     pub fn extract_schedule(&self) -> Result<HashMap<String, i32>, String> {
         if self.zone.is_empty() {
@@ -644,12 +595,49 @@ impl TimeConstraintCompiler {
         result
     }
 
+    // Enhanced resolve_reference method to handle "or" expressions without sorting
     fn resolve_reference(&self, reference_str: &str) -> Result<Vec<Variable>, String> {
+        // Check if the reference contains " or "
+        if reference_str.contains(" or ") {
+            let parts: Vec<&str> = reference_str.split(" or ").collect();
+            let mut all_clocks = Vec::new();
+
+            // Resolve each part separately and combine the results
+            for part in parts {
+                match self.resolve_single_reference(part.trim()) {
+                    Ok(clocks) => {
+                        // Add only unique clocks
+                        for clock in clocks {
+                            if !all_clocks.contains(&clock) {
+                                all_clocks.push(clock);
+                            }
+                        }
+                    }
+                    Err(_) => (), // Ignore errors for individual parts in an OR expression
+                }
+            }
+
+            if all_clocks.is_empty() {
+                return Err(format!(
+                    "Could not resolve any part of reference '{}'",
+                    reference_str
+                ));
+            }
+
+            return Ok(all_clocks);
+        }
+
+        // If no "or", just resolve as a single reference
+        self.resolve_single_reference(reference_str)
+    }
+
+    // Helper method to resolve a single reference (no OR)
+    fn resolve_single_reference(&self, reference_str: &str) -> Result<Vec<Variable>, String> {
         // First try to find it as an entity (exact match)
         let entity_clocks: Vec<Variable> = self
             .clocks
             .values()
-            .filter(|c| c.entity_name() == reference_str)
+            .filter(|c| c.entity_name.to_lowercase() == reference_str)
             .map(|c| c.variable)
             .collect();
 
