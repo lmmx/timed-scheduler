@@ -607,18 +607,59 @@ impl TimeConstraintCompiler {
     }
 
     fn apply_entity_constraints(&mut self) -> Result<(), String> {
-        // Collect all constraints first to avoid borrowing issues
-        let mut all_constraints: Vec<(String, ConstraintExpression)> = Vec::new();
+        // First, collect all constraint operations we need to perform
+        let mut constraint_operations = Vec::new();
 
         for (entity_name, entity) in &self.entities {
+            let entity_clocks: Vec<&ClockInfo> = self
+                .clocks
+                .values()
+                .filter(|c| c.entity_name == *entity_name)
+                .collect();
+
+            if entity_clocks.len() <= 1 {
+                continue; // Skip entities with only one instance
+            }
+
+            // Sort clocks by instance number
+            let mut ordered_clocks = entity_clocks.clone();
+            ordered_clocks.sort_by_key(|c| c.instance);
+
+            // For each "apart" constraint
             for constraint in &entity.constraints {
-                all_constraints.push((entity_name.clone(), constraint.clone()));
+                if let ConstraintType::Apart = constraint.constraint_type {
+                    let time_in_minutes =
+                        constraint.time_unit.to_minutes(constraint.time_value) as i64;
+
+                    // Create sequential constraints
+                    for i in 0..ordered_clocks.len() - 1 {
+                        let current = ordered_clocks[i];
+                        let next = ordered_clocks[i + 1];
+
+                        // Store the constraint operation for later execution
+                        constraint_operations.push((
+                            current.variable,
+                            next.variable,
+                            time_in_minutes,
+                            format!(
+                                "{} must be ≥{}h{}m after {}",
+                                self.find_clock_name(next.variable).unwrap_or_default(),
+                                time_in_minutes / 60,
+                                time_in_minutes % 60,
+                                self.find_clock_name(current.variable).unwrap_or_default()
+                            ),
+                        ));
+                    }
+                }
             }
         }
 
-        // Now apply all collected constraints
-        for (entity_name, constraint) in all_constraints {
-            self.apply_constraint(&entity_name, &constraint)?;
+        // Now apply all the constraints we collected
+        for (from_var, to_var, time_minutes, description) in constraint_operations {
+            self.add_constraint_safely(
+                || Constraint::new_diff_ge(to_var, from_var, time_minutes),
+                &description,
+            );
         }
 
         Ok(())
