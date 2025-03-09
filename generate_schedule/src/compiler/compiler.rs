@@ -1,10 +1,13 @@
+use clock_zones::{Bound, Clock, Constraint, Dbm, Variable, Zone};
+use colored::*;
 use std::collections::{HashMap, HashSet};
-use clock_zones::{Clock, Constraint, Dbm, Variable, Zone};
+use std::env;
 
+use crate::compiler::clock_info::ClockInfo;
+use crate::types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
 use crate::types::entity::Entity;
 use crate::types::frequency::Frequency;
-use crate::types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
-use crate::compiler::clock_info::ClockInfo;
+use crate::types::time_unit::TimeUnit::Hour;
 
 pub struct TimeConstraintCompiler {
     // Maps entity names to their data
@@ -17,10 +20,15 @@ pub struct TimeConstraintCompiler {
     zone: Dbm<i64>,
     // Next available clock variable index
     next_clock_index: usize,
+    // Debug mode flag
+    debug: bool,
 }
 
 impl TimeConstraintCompiler {
     pub fn new(entities: Vec<Entity>) -> Self {
+        // Check if debug flag is set
+        let debug = env::var("RUST_DEBUG").is_ok() || env::args().any(|arg| arg == "--debug");
+
         // Organize entities and categories
         let mut entity_map = HashMap::new();
         let mut category_map: HashMap<String, HashSet<String>> = HashMap::new();
@@ -50,33 +58,450 @@ impl TimeConstraintCompiler {
             clocks: HashMap::new(),
             zone,
             next_clock_index: 0,
+            debug,
         }
     }
 
+    fn debug_print(&self, emoji: &str, message: &str) {
+        if self.debug {
+            println!("{} {}", emoji.green(), message.bright_blue());
+        }
+    }
+
+    fn debug_error(&self, emoji: &str, message: &str) {
+        if self.debug {
+            println!("{} {}", emoji.red(), message.bright_red());
+        }
+    }
+
+    fn debug_zone_state(&self) {
+        if !self.debug {
+            return;
+        }
+
+        println!("{}", "🔍 Current Zone State:".yellow().bold());
+
+        if self.zone.is_empty() {
+            println!("{}", "   ❌ ZONE IS EMPTY (infeasible)".red().bold());
+            return;
+        }
+
+        println!("{}", "   ✅ ZONE IS FEASIBLE".green().bold());
+
+        // Print bounds for each clock
+        for (clock_id, clock_info) in &self.clocks {
+            let lower = self.zone.get_lower_bound(clock_info.variable);
+            let upper = self.zone.get_upper_bound(clock_info.variable);
+
+            let bounds_str = match (lower, upper) {
+                (Some(l), Some(u)) => {
+                    let l_hour = l / 60;
+                    let l_min = l % 60;
+                    let u_hour = u / 60;
+                    let u_min = u % 60;
+                    format!("[{:02}:{:02} - {:02}:{:02}]", l_hour, l_min, u_hour, u_min)
+                }
+                _ => "[unknown bounds]".to_string(),
+            };
+
+            println!(
+                "   {} ({}): {}",
+                clock_id.cyan(),
+                clock_info.entity_name.blue(),
+                bounds_str.yellow()
+            );
+        }
+
+        // Print some difference constraints
+        println!("{}", "   Difference Constraints (sample):".yellow());
+        let mut constraints_shown = 0;
+
+        for i in 0..self.clocks.len() {
+            for j in 0..self.clocks.len() {
+                if i == j {
+                    continue;
+                }
+
+                let var_i = Clock::variable(i);
+                let var_j = Clock::variable(j);
+
+                let bound = self.zone.get_bound(var_i, var_j);
+                if let Some(diff) = bound.constant() {
+                    if constraints_shown < 5 {
+                        // Limit to 5 constraints to avoid overwhelming output
+                        let name_i = self
+                            .find_clock_name(var_i)
+                            .unwrap_or_else(|| "unknown".to_string());
+                        let name_j = self
+                            .find_clock_name(var_j)
+                            .unwrap_or_else(|| "unknown".to_string());
+
+                        println!(
+                            "     {} - {} <= {} ({} minutes)",
+                            name_i.green(),
+                            name_j.green(),
+                            diff.to_string().yellow(),
+                            diff.to_string().yellow()
+                        );
+
+                        constraints_shown += 1;
+                    }
+                }
+            }
+        }
+
+        println!();
+    }
+
+    fn find_clock_name(&self, var: Variable) -> Option<String> {
+        for (name, info) in &self.clocks {
+            if info.variable == var {
+                return Some(name.clone());
+            }
+        }
+        None
+    }
+
     pub fn compile(&mut self) -> Result<&Dbm<i64>, String> {
+        self.debug_print("🚀", "Starting compilation process");
+
         // 1. Create clock variables for all entity instances
+        self.debug_print("⏰", "Step 1: Allocating clock variables");
         self.allocate_clocks()?;
+        self.debug_zone_state();
 
         // 2. Set daily bounds (0-24 hours in minutes)
+        self.debug_print("📅", "Step 2: Setting daily bounds (0-24 hours)");
         self.set_daily_bounds()?;
+        self.debug_zone_state();
 
         // 3. Apply frequency-based constraints (spacing between occurrences)
+        self.debug_print("🔄", "Step 3: Applying frequency-based constraints");
         self.apply_frequency_constraints()?;
+        self.debug_zone_state();
 
         // 4. Apply entity-specific constraints
+        self.debug_print("🔗", "Step 4: Applying entity-specific constraints");
         self.apply_entity_constraints()?;
+        self.debug_zone_state();
 
         // 5. Check feasibility
         if self.zone.is_empty() {
+            self.debug_error("❌", "Schedule is not feasible with the given constraints");
+
+            // Try to identify which constraint caused infeasibility
+            self.debug_error("🔍", "Attempting to identify problematic constraints...");
+            self.diagnose_infeasibility::<i32>();
+
             return Err("Schedule is not feasible with the given constraints".to_string());
         }
 
+        self.debug_print("✅", "Schedule is feasible! Zone has valid solutions.");
         Ok(&self.zone)
+    }
+
+    fn diagnose_infeasibility<B: clock_zones::Bound<Constant = i32>>(&mut self) {
+        if !self.debug {
+            return;
+        }
+
+        self.debug_print("🔎", "Running diagnosis to find problematic constraints");
+
+        // Try with just daily bounds
+        let mut test_zone = Dbm::<B>::new_zero(self.next_clock_index);
+
+        // Apply only daily bounds
+        for clock_info in self.clocks.values() {
+            test_zone.add_constraint(Constraint::new_ge(clock_info.variable, 0));
+            test_zone.add_constraint(Constraint::new_le(clock_info.variable, 1439));
+        }
+
+        if test_zone.is_empty() {
+            self.debug_error(
+                "⚠️",
+                "Even basic daily bounds (0-1439) lead to infeasibility!",
+            );
+            return;
+        }
+
+        self.debug_print("✓", "Basic daily bounds are feasible");
+
+        // Try with frequency constraints
+        let mut test_zone = Dbm::new_zero(self.next_clock_index);
+
+        // Apply daily bounds
+        for clock_info in self.clocks.values() {
+            test_zone.add_constraint(Constraint::new_ge(clock_info.variable, 0));
+            test_zone.add_constraint(Constraint::new_le(clock_info.variable, 1439));
+        }
+
+        // Group clocks by entity
+        let mut entity_clocks: HashMap<String, Vec<Variable>> = HashMap::new();
+        for clock_info in self.clocks.values() {
+            entity_clocks
+                .entry(clock_info.entity_name.clone())
+                .or_default()
+                .push(clock_info.variable);
+        }
+
+        // Apply ordering constraints only
+        for (entity_name, clocks) in &entity_clocks {
+            if clocks.len() <= 1 {
+                continue;
+            }
+
+            let mut ordered_clocks: Vec<(usize, Variable)> = self
+                .clocks
+                .values()
+                .filter(|c| c.entity_name == *entity_name)
+                .map(|c| (c.instance, c.variable))
+                .collect();
+            ordered_clocks.sort_by_key(|&(instance, _)| instance);
+
+            for i in 0..ordered_clocks.len() - 1 {
+                let (_, current) = ordered_clocks[i];
+                let (_, next) = ordered_clocks[i + 1];
+
+                // Next instance must come after current instance
+                test_zone.add_constraint(Constraint::new_diff_gt(next, current, 0));
+            }
+        }
+
+        if test_zone.is_empty() {
+            self.debug_error("⚠️", "Ordering constraints lead to infeasibility!");
+            return;
+        }
+
+        self.debug_print("✓", "Basic ordering constraints are feasible");
+
+        // Now try applying spacing constraints
+        for (entity_name, clocks) in &entity_clocks {
+            if clocks.len() <= 1 {
+                continue;
+            }
+
+            let entity = self.entities.get(entity_name).unwrap();
+
+            let mut ordered_clocks: Vec<(usize, Variable)> = self
+                .clocks
+                .values()
+                .filter(|c| c.entity_name == *entity_name)
+                .map(|c| (c.instance, c.variable))
+                .collect();
+            ordered_clocks.sort_by_key(|&(instance, _)| instance);
+
+            let mut test_zone_with_spacing = test_zone.clone();
+            let min_spacing = match entity.frequency {
+                Frequency::TwiceDaily => 6 * 60,      // 6 hours in minutes
+                Frequency::ThreeTimesDaily => 4 * 60, // 4 hours in minutes
+                Frequency::EveryXHours(hours) => (hours as i64) * 60,
+                _ => 60, // Default 1 hour minimum spacing
+            };
+
+            for i in 0..ordered_clocks.len() - 1 {
+                let (_, current) = ordered_clocks[i];
+                let (_, next) = ordered_clocks[i + 1];
+
+                test_zone_with_spacing.add_constraint(Constraint::new_diff_ge(
+                    next,
+                    current,
+                    min_spacing,
+                ));
+            }
+
+            if test_zone_with_spacing.is_empty() {
+                self.debug_error(
+                    "⚠️",
+                    &format!(
+                        "Spacing constraints for '{}' (≥{} min) lead to infeasibility!",
+                        entity_name, min_spacing
+                    ),
+                );
+            }
+        }
+
+        // Try individual entity constraints
+        let mut problem_constraints = Vec::new();
+
+        for (entity_name, entity) in &self.entities {
+            for constraint in &entity.constraints {
+                let mut test_zone_with_constraint = test_zone.clone();
+
+                match self.apply_test_constraint(
+                    &mut test_zone_with_constraint,
+                    entity_name,
+                    constraint,
+                ) {
+                    Ok(_) => {
+                        if test_zone_with_constraint.is_empty() {
+                            let constraint_str = match &constraint.constraint_type {
+                                ConstraintType::Before => format!(
+                                    "≥{}{} before {:?}",
+                                    constraint.time_value,
+                                    if constraint.time_unit == Hour {
+                                        "h"
+                                    } else {
+                                        "m"
+                                    },
+                                    constraint.reference
+                                ),
+                                ConstraintType::After => format!(
+                                    "≥{}{} after {:?}",
+                                    constraint.time_value,
+                                    if constraint.time_unit == Hour {
+                                        "h"
+                                    } else {
+                                        "m"
+                                    },
+                                    constraint.reference
+                                ),
+                                ConstraintType::ApartFrom => format!(
+                                    "≥{}{} apart from {:?}",
+                                    constraint.time_value,
+                                    if constraint.time_unit == Hour {
+                                        "h"
+                                    } else {
+                                        "m"
+                                    },
+                                    constraint.reference
+                                ),
+                                ConstraintType::Apart => format!(
+                                    "≥{}{} apart",
+                                    constraint.time_value,
+                                    if constraint.time_unit == Hour {
+                                        "h"
+                                    } else {
+                                        "m"
+                                    }
+                                ),
+                            };
+
+                            problem_constraints.push((entity_name.clone(), constraint_str));
+                        }
+                    }
+                    Err(e) => {
+                        problem_constraints.push((entity_name.clone(), format!("Error: {}", e)));
+                    }
+                }
+            }
+        }
+
+        if !problem_constraints.is_empty() {
+            self.debug_error("📋", "Problematic constraints found:");
+            for (entity, constraint) in problem_constraints {
+                self.debug_error("  👉", &format!("{}: {}", entity, constraint));
+            }
+        } else {
+            self.debug_error("❓", "Could not identify specific problematic constraints. The combination of all constraints might be causing the issue.");
+        }
+    }
+
+    fn apply_test_constraint(
+        &self,
+        test_zone: &mut Dbm<i64>,
+        entity_name: &str,
+        constraint: &ConstraintExpression,
+    ) -> Result<(), String> {
+        // Convert time value to minutes
+        let time_in_minutes = constraint.time_unit.to_minutes(constraint.time_value) as i64;
+
+        // Get all clocks for this entity
+        let entity_clocks: Vec<Variable> = self
+            .clocks
+            .values()
+            .filter(|c| c.entity_name == entity_name)
+            .map(|c| c.variable)
+            .collect();
+
+        match &constraint.constraint_type {
+            ConstraintType::Apart => {
+                // Apply spacing constraint between instances of the same entity
+                if entity_clocks.len() <= 1 {
+                    // No constraints needed for single instance
+                    return Ok(());
+                }
+
+                for i in 0..entity_clocks.len() {
+                    for j in i + 1..entity_clocks.len() {
+                        // Ensure minimum spacing in either direction
+                        test_zone.add_constraint(Constraint::new_diff_ge(
+                            entity_clocks[i],
+                            entity_clocks[j],
+                            time_in_minutes,
+                        ));
+                        test_zone.add_constraint(Constraint::new_diff_ge(
+                            entity_clocks[j],
+                            entity_clocks[i],
+                            time_in_minutes,
+                        ));
+                    }
+                }
+            }
+
+            ConstraintType::Before | ConstraintType::After | ConstraintType::ApartFrom => {
+                // Get reference clocks based on the constraint reference
+                let reference_clocks = match &constraint.reference {
+                    ConstraintReference::Unresolved(reference_str) => {
+                        self.resolve_reference(reference_str)?
+                    }
+                    ConstraintReference::WithinGroup => {
+                        return Err("WithinGroup reference should not be used here".to_string())
+                    }
+                };
+
+                for &entity_clock in &entity_clocks {
+                    for &reference_clock in &reference_clocks {
+                        match constraint.constraint_type {
+                            ConstraintType::Before => {
+                                // Entity must be scheduled at least X minutes before reference
+                                test_zone.add_constraint(Constraint::new_diff_ge(
+                                    reference_clock,
+                                    entity_clock,
+                                    time_in_minutes,
+                                ));
+                            }
+                            ConstraintType::After => {
+                                // Entity must be scheduled at least X minutes after reference
+                                test_zone.add_constraint(Constraint::new_diff_ge(
+                                    entity_clock,
+                                    reference_clock,
+                                    time_in_minutes,
+                                ));
+                            }
+                            ConstraintType::ApartFrom => {
+                                // Entity must be separated from reference by at least X minutes
+                                // in either direction
+                                test_zone.add_constraint(Constraint::new_diff_ge(
+                                    entity_clock,
+                                    reference_clock,
+                                    time_in_minutes,
+                                ));
+                                test_zone.add_constraint(Constraint::new_diff_ge(
+                                    reference_clock,
+                                    entity_clock,
+                                    time_in_minutes,
+                                ));
+                            }
+                            _ => unreachable!(),
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn allocate_clocks(&mut self) -> Result<(), String> {
         for (entity_name, entity) in &self.entities {
             let instances = entity.frequency.get_instances_per_day();
+            self.debug_print(
+                "📝",
+                &format!(
+                    "Entity: {} - Frequency: {:?} - Instances: {}",
+                    entity_name, entity.frequency, instances
+                ),
+            );
 
             for i in 0..instances {
                 let clock_id = format!("{}_{}", entity_name, i + 1);
@@ -91,6 +516,15 @@ impl TimeConstraintCompiler {
                         variable,
                     },
                 );
+
+                self.debug_print(
+                    "➕",
+                    &format!(
+                        "Created clock: {} (var index: {})",
+                        clock_id,
+                        self.next_clock_index - 1
+                    ),
+                );
             }
         }
 
@@ -99,13 +533,15 @@ impl TimeConstraintCompiler {
 
     fn set_daily_bounds(&mut self) -> Result<(), String> {
         // Convert time to minutes (0-1440 for a 24-hour day)
-        for clock_info in self.clocks.values() {
+        for (clock_id, clock_info) in &self.clocks {
             // Not before 0:00
             self.zone
                 .add_constraint(Constraint::new_ge(clock_info.variable, 0));
             // Not after 23:59
             self.zone
                 .add_constraint(Constraint::new_le(clock_info.variable, 1439));
+
+            self.debug_print("⏱️", &format!("Set bounds for {}: [0:00, 23:59]", clock_id));
         }
 
         Ok(())
@@ -141,12 +577,20 @@ impl TimeConstraintCompiler {
 
             // Apply ordering and spacing constraints
             for i in 0..ordered_clocks.len() - 1 {
-                let (_, current) = ordered_clocks[i];
-                let (_, next) = ordered_clocks[i + 1];
+                let (instance_i, current) = ordered_clocks[i];
+                let (instance_j, next) = ordered_clocks[i + 1];
 
                 // Next instance must come after current instance
                 self.zone
                     .add_constraint(Constraint::new_diff_gt(next, current, 0));
+
+                self.debug_print(
+                    "🔢",
+                    &format!(
+                        "{}_{}  must be after  {}_{}",
+                        entity_name, instance_j, entity_name, instance_i
+                    ),
+                );
 
                 // Apply minimum spacing based on frequency
                 let min_spacing = match entity.frequency {
@@ -158,6 +602,16 @@ impl TimeConstraintCompiler {
 
                 self.zone
                     .add_constraint(Constraint::new_diff_ge(next, current, min_spacing));
+
+                let hours = min_spacing / 60;
+                let mins = min_spacing % 60;
+                self.debug_print(
+                    "↔️",
+                    &format!(
+                        "{}_{}  must be ≥{}h{}m after  {}_{}",
+                        entity_name, instance_j, hours, mins, entity_name, instance_i
+                    ),
+                );
             }
         }
 

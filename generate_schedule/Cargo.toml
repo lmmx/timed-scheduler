@@ -5,5 +5,6 @@ edition = "2021"
 
 [dependencies]
 clock-zones = "0.4.1"
+colored = "3.0.0"
 regex = "1.5"
 serde = { version = "1.0", features = ["derive"] }
