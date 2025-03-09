@@ -469,18 +469,7 @@ impl TimeConstraintCompiler {
                                 ));
                             }
                             ConstraintType::ApartFrom => {
-                                // Entity must be separated from reference by at least X minutes
-                                // in either direction
-                                test_zone.add_constraint(Constraint::new_diff_ge(
-                                    entity_clock,
-                                    reference_clock,
-                                    time_in_minutes,
-                                ));
-                                test_zone.add_constraint(Constraint::new_diff_ge(
-                                    reference_clock,
-                                    entity_clock,
-                                    time_in_minutes,
-                                ));
+                                // TODO: express constraints like 'X minutes apart from food'
                             }
                             _ => unreachable!(),
                         }

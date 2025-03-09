@@ -36,7 +36,7 @@ pub fn parse_from_table(rows: Vec<Vec<&str>>) -> Result<Vec<Entity>, String> {
         let frequency = row[5];
 
         // Parse min_spacing (int or null)
-        let min_spacing = Some(0);
+        let min_spacing = Some(1);
 
         // Parse constraints array (from string to vec)
         let constraints_str = row[6].trim();
