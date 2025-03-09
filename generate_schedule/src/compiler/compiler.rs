@@ -50,7 +50,7 @@ impl TimeConstraintCompiler {
             .map(|e| e.frequency.get_instances_per_day())
             .sum();
 
-        let zone = Dbm::new_zero(total_clocks);
+        let zone = Dbm::new_unconstrained(total_clocks);
 
         TimeConstraintCompiler {
             entities: entity_map,
