@@ -636,6 +636,30 @@ impl TimeConstraintCompiler {
         Ok(())
     }
 
+    fn add_constraint_safely<F>(&mut self, constraint_builder: F, description: &str) -> bool
+    where
+        F: Fn() -> Constraint<i64>,
+    {
+        // Create a test zone to see if adding this constraint would make it infeasible
+        let mut test_zone = self.zone.clone();
+        test_zone.add_constraint(constraint_builder());
+
+        if test_zone.is_empty() {
+            self.debug_error(
+                "⚠️",
+                &format!(
+                    "Cannot add constraint - would make schedule infeasible: {}",
+                    description
+                ),
+            );
+            false
+        } else {
+            self.debug_print("✅", &format!("Adding constraint: {}", description));
+            self.zone.add_constraint(constraint_builder());
+            true
+        }
+    }
+
     fn apply_constraint(
         &mut self,
         entity_name: &str,
@@ -662,17 +686,51 @@ impl TimeConstraintCompiler {
 
                 for i in 0..entity_clocks.len() {
                     for j in i + 1..entity_clocks.len() {
-                        // Ensure minimum spacing in either direction
-                        self.zone.add_constraint(Constraint::new_diff_ge(
-                            entity_clocks[i],
-                            entity_clocks[j],
-                            time_in_minutes,
-                        ));
-                        self.zone.add_constraint(Constraint::new_diff_ge(
-                            entity_clocks[j],
-                            entity_clocks[i],
-                            time_in_minutes,
-                        ));
+                        // Get clock names for better logging
+                        let name_i = self
+                            .find_clock_name(entity_clocks[i])
+                            .unwrap_or_else(|| format!("clock_{}", i));
+                        let name_j = self
+                            .find_clock_name(entity_clocks[j])
+                            .unwrap_or_else(|| format!("clock_{}", j));
+
+                        // Ensure minimum spacing from i to j
+                        let hours = time_in_minutes / 60;
+                        let mins = time_in_minutes % 60;
+                        let description_i_to_j = format!(
+                            "{} must be ≥{}h{}m apart from {} (forward)",
+                            name_i, hours, mins, name_j
+                        );
+                        let success_i_to_j = self.add_constraint_safely(
+                            || {
+                                Constraint::new_diff_ge(
+                                    entity_clocks[i],
+                                    entity_clocks[j],
+                                    time_in_minutes,
+                                )
+                            },
+                            &description_i_to_j,
+                        );
+
+                        // Only try the other direction if the first one was successful
+                        if success_i_to_j {
+                            // Ensure minimum spacing from j to i
+                            let description_j_to_i = format!(
+                                "{} must be ≥{}h{}m apart from {} (backward)",
+                                name_j, hours, mins, name_i
+                            );
+
+                            self.add_constraint_safely(
+                                || {
+                                    Constraint::new_diff_ge(
+                                        entity_clocks[j],
+                                        entity_clocks[i],
+                                        time_in_minutes,
+                                    )
+                                },
+                                &description_j_to_i,
+                            );
+                        }
                     }
                 }
             }
