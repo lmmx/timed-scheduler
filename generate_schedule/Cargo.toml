@@ -1,10 +1,10 @@
-[package]
-name = "generate_schedule"
-version = "0.1.0"
-edition = "2021"
-
 [dependencies]
 clock-zones = "0.4.1"
 colored = "3.0.0"
 regex = "1.5"
-serde = { version = "1.0", features = ["derive"] }
+serde = {version = "1.0", features = ["derive"]}
+
+[package]
+name = "generate_schedule"
+version = "0.1.0"
+edition = "2021"

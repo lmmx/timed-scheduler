@@ -1,7 +1,7 @@
+[dependencies]
+clock-zones = "0.4.1"
+
 [package]
 name = "simulate_execution"
 version = "0.1.0"
 edition = "2021"
-
-[dependencies]
-clock-zones = "0.4.1"
