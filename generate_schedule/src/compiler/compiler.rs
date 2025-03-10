@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 
 use crate::compiler::clock_info::ClockInfo;
+use crate::extractor::schedule_extractor::{ScheduleExtractor, ScheduleStrategy};
 use crate::types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
 use crate::types::entity::Entity;
 use crate::types::frequency::Frequency;
@@ -985,5 +986,25 @@ impl TimeConstraintCompiler {
             "Could not resolve reference '{}' - not found as entity or category",
             reference_str
         ))
+    }
+
+    // Uses the ScheduleExtractor with the chosen strategy
+    pub fn finalize_schedule(
+        &self,
+        strategy: ScheduleStrategy,
+    ) -> Result<HashMap<String, i32>, String> {
+        // Make sure zone is properly compiled
+        if self.zone.is_empty() {
+            return Err(
+                "Cannot extract schedule from empty zone. Did you call compile() first?"
+                    .to_string(),
+            );
+        }
+
+        // Create the extractor and pass references to zone and clocks
+        let extractor = ScheduleExtractor::new(&self.zone, &self.clocks);
+
+        // Extract schedule using the selected strategy
+        extractor.extract_schedule(strategy)
     }
 }

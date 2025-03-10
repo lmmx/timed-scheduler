@@ -2,12 +2,14 @@
 use clock_zones::Zone;
 
 mod compiler;
+mod extractor;
 mod parser;
 mod types;
 
 // Re-export the main types and functionality
 pub use compiler::clock_info::ClockInfo;
 pub use compiler::compiler::TimeConstraintCompiler;
+pub use extractor::schedule_extractor::ScheduleStrategy;
 pub use parser::table_parser::parse_from_table;
 pub use types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
 pub use types::entity::Entity;
@@ -96,7 +98,7 @@ pub fn example() -> Result<(), String> {
     }
 
     // Extract a concrete schedule
-    let schedule = compiler.extract_schedule()?;
+    let schedule = compiler.finalize_schedule(ScheduleStrategy::Justified)?;
 
     // Display formatted schedule
     let formatted = compiler.format_schedule(&schedule);
