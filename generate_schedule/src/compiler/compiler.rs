@@ -661,7 +661,7 @@ impl TimeConstraintCompiler {
                         };
 
                         // Get reference clocks based on the constraint reference
-                        let reference_clocks = match &constraint.reference {
+                        let _reference_clocks = match &constraint.reference {
                             ConstraintReference::Unresolved(ref_str) => {
                                 match self.resolve_reference(ref_str) {
                                     Ok(clocks) => clocks,
@@ -686,7 +686,7 @@ impl TimeConstraintCompiler {
                             }
                         };
 
-                        let time_in_minutes =
+                        let _time_in_minutes =
                             constraint.time_unit.to_minutes(constraint.time_value) as i64;
 
                         // Just log that we're handling these constraints
