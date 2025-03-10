@@ -89,7 +89,7 @@ pub fn example(strategy: ScheduleStrategy) -> Result<(), String> {
 
     // Create compiler and generate schedule
     let mut compiler = TimeConstraintCompiler::new(entities);
-    
+
     // IMPORTANT: Only call compile() once!
     let zone = compiler.compile()?;
 

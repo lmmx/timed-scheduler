@@ -124,11 +124,11 @@ fn main() -> Result<(), String> {
             "Entity", "Category", "Unit", "Amount", "Split", "Frequency", "Constraints", "Note",
         ],
         vec![
-            "Medication A", "medicine", "mg", "10", "null", "2x daily", 
+            "Medication A", "medicine", "mg", "10", "null", "2x daily",
             "[\"≥30m apart from food\"]", "Take with water"
         ],
         vec![
-            "Breakfast", "food", "meal", "null", "null", "daily", 
+            "Breakfast", "food", "meal", "null", "null", "daily",
             "[]", "null"
         ],
     ];
