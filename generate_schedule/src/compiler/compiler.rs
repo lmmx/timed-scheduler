@@ -988,12 +988,11 @@ impl TimeConstraintCompiler {
         ))
     }
 
-    // Uses the ScheduleExtractor with the chosen strategy
     pub fn finalize_schedule(
         &self,
         strategy: ScheduleStrategy,
     ) -> Result<HashMap<String, i32>, String> {
-        // Make sure zone is properly compiled
+        // Make sure zone is properly compiled and feasible
         if self.zone.is_empty() {
             return Err(
                 "Cannot extract schedule from empty zone. Did you call compile() first?"
@@ -1005,6 +1004,40 @@ impl TimeConstraintCompiler {
         let extractor = ScheduleExtractor::new(&self.zone, &self.clocks);
 
         // Extract schedule using the selected strategy
-        extractor.extract_schedule(strategy)
+        let schedule = extractor.extract_schedule(strategy)?;
+
+        // Debug output for schedule extraction
+        if self.debug {
+            println!(
+                "{}",
+                "📋 Schedule extracted using strategy:".yellow().bold()
+            );
+            match strategy {
+                ScheduleStrategy::Earliest => println!("  Strategy: Earliest"),
+                ScheduleStrategy::Latest => println!("  Strategy: Latest"),
+                ScheduleStrategy::Centered => println!("  Strategy: Centered"),
+                ScheduleStrategy::Justified => println!("  Strategy: Justified"),
+                ScheduleStrategy::MaximumSpread => println!("  Strategy: MaximumSpread"),
+            }
+
+            // Convert to a sorted list like in format_schedule
+            let mut time_entries: Vec<(i32, String)> = schedule
+                .iter()
+                .map(|(clock_id, &minutes)| (minutes, clock_id.clone()))
+                .collect();
+
+            // Sort by time ascending
+            time_entries.sort_by_key(|&(minutes, _)| minutes);
+
+            // Print the extracted times in sorted order
+            for (minutes, clock_id) in time_entries {
+                let hours = minutes / 60;
+                let mins = minutes % 60;
+                println!("  {}: {:02}:{:02}", clock_id.cyan(), hours, mins);
+            }
+            println!();
+        }
+
+        Ok(schedule)
     }
 }

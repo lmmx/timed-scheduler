@@ -32,13 +32,35 @@ impl<'a> ScheduleExtractor<'a> {
         }
 
         // Dispatch to appropriate strategy
-        match strategy {
+        let mut schedule = match strategy {
             ScheduleStrategy::Earliest => self.extract_earliest(),
             ScheduleStrategy::Latest => self.extract_latest(),
             ScheduleStrategy::Centered => self.extract_centered(),
             ScheduleStrategy::Justified => self.extract_justified_global(),
             ScheduleStrategy::MaximumSpread => self.extract_max_spread_global(),
+        }?;
+
+        // Final validation to ensure all times are within bounds
+        self.validate_schedule(&mut schedule)?;
+
+        Ok(schedule)
+    }
+
+    // Ensure all clock assignments are within their bounds
+    fn validate_schedule(&self, schedule: &mut HashMap<String, i32>) -> Result<(), String> {
+        for (clock_id, info) in self.clocks.iter() {
+            if let Some(time) = schedule.get_mut(clock_id) {
+                let mut lb = self.zone.get_lower_bound(info.variable).unwrap_or(0) as i32;
+                let mut ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440) as i32;
+
+                if *time < lb || *time > ub {
+                    // Clamp to valid range
+                    *time = *time.clamp(&mut lb, &mut ub);
+                }
+            }
         }
+
+        Ok(())
     }
 
     fn extract_earliest(&self) -> Result<HashMap<String, i32>, String> {
