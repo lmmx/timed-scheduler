@@ -14,6 +14,86 @@ src/
 └── parser/              # Input format parsers
 ```
 
+# Schedule Strategy Command-Line Option Guide
+
+I've added the ability to select different scheduling strategies through command-line options. This
+allows you to easily experiment with different approaches to schedule extraction without modifying
+the code.
+
+### Basic Usage
+
+To run the scheduler with a specific strategy:
+
+```bash
+cargo run -- --strategy justified
+# Or using the short form
+cargo run -- -s justified
+```
+
+### Available Strategies
+
+The following strategies are available:
+
+1. **earliest** - Schedule all events at their earliest possible time
+2. **latest** - Schedule all events at their latest possible time
+3. **centered** - Schedule all events in the middle of their feasible range (default)
+4. **justified** - Distribute events evenly across the feasible time span
+5. **spread** (or **maximumspread**) - Maximize the spacing between events
+
+### Combining with Debug
+
+You can combine the strategy flag with the debug flag:
+
+```bash
+cargo run -- --strategy earliest --debug
+```
+
+### Getting Help
+
+To display usage information:
+
+```bash
+cargo run -- --help
+# Or
+cargo run -- -h
+```
+
+## Example Command Lines
+
+```bash
+# Use earliest strategy with debug output
+cargo run -- -s earliest -d
+
+# Use justified strategy
+cargo run -- --strategy justified
+
+# Use latest strategy with debug output
+cargo run -- --strategy latest --debug
+
+# Use spread strategy
+cargo run -- -s spread
+```
+
+## Default Behavior
+
+If no strategy is specified, the program will default to using the `Centered` strategy, which places
+each event in the middle of its feasible time range.
+
+## Error Handling
+
+- If an unknown strategy is specified, the program will warn you and default to the `Centered`
+  strategy
+- Suggestions to run with `--help` are provided when errors occur
+- If a strategy is specified without a value, it will default to `Centered`
+
+## Important Note
+
+When using the strategy flag with debug output, you'll now see the schedule printed twice:
+1. First in the debug output after extraction (sorted by time)
+2. Then in the final formatted output (also sorted by time)
+
+This provides a consistent view of the schedule at different stages of the process.
+
 ## Key Components
 
 ### Types

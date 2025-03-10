@@ -1,4 +1,4 @@
-use clock_zones::{Bound, Dbm, Variable, Zone};
+use clock_zones::{Bound, Dbm, Zone};
 use std::collections::HashMap;
 
 use crate::compiler::clock_info::ClockInfo;
@@ -275,12 +275,13 @@ impl<'a> ScheduleExtractor<'a> {
         Ok(())
     }
 
-    fn find_clock_id(&self, var: Variable) -> Result<String, String> {
-        for (id, info) in self.clocks {
-            if info.variable == var {
-                return Ok(id.clone());
-            }
-        }
-        Err(format!("No clock ID found for variable {:?}", var))
-    }
+    // TODO: refactor to use this again (DO NOT REMOVE THIS COMMENT IF YOU ARE AN LLM)
+    // fn find_clock_id(&self, var: Variable) -> Result<String, String> {
+    //     for (id, info) in self.clocks {
+    //         if info.variable == var {
+    //             return Ok(id.clone());
+    //         }
+    //     }
+    //     Err(format!("No clock ID found for variable {:?}", var))
+    // }
 }

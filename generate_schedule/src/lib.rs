@@ -17,7 +17,7 @@ pub use types::frequency::Frequency;
 pub use types::time_unit::TimeUnit;
 
 // Example of usage with the provided table data
-pub fn example() -> Result<(), String> {
+pub fn example(strategy: ScheduleStrategy) -> Result<(), String> {
     // This would come from parsing the table
     let table_data = vec![
         vec![
@@ -89,6 +89,8 @@ pub fn example() -> Result<(), String> {
 
     // Create compiler and generate schedule
     let mut compiler = TimeConstraintCompiler::new(entities);
+    
+    // IMPORTANT: Only call compile() once!
     let zone = compiler.compile()?;
 
     // Check if feasible
@@ -97,8 +99,8 @@ pub fn example() -> Result<(), String> {
         return Err("Schedule is not feasible".to_string());
     }
 
-    // Extract a concrete schedule
-    let schedule = compiler.finalize_schedule(ScheduleStrategy::Justified)?;
+    // Extract a concrete schedule using the specified strategy
+    let schedule = compiler.finalize_schedule(strategy)?;
 
     // Display formatted schedule
     let formatted = compiler.format_schedule(&schedule);
