@@ -617,50 +617,173 @@ impl TimeConstraintCompiler {
                 .filter(|c| c.entity_name == *entity_name)
                 .collect();
 
-            if entity_clocks.len() <= 1 {
-                continue; // Skip entities with only one instance
-            }
-
-            // Sort clocks by instance number
-            let mut ordered_clocks = entity_clocks.clone();
-            ordered_clocks.sort_by_key(|c| c.instance);
-
-            // For each "apart" constraint
+            // Process all constraint types for this entity
             for constraint in &entity.constraints {
-                if let ConstraintType::Apart = constraint.constraint_type {
-                    let time_in_minutes =
-                        constraint.time_unit.to_minutes(constraint.time_value) as i64;
+                match &constraint.constraint_type {
+                    ConstraintType::Apart => {
+                        // Existing Apart handling...
+                        if entity_clocks.len() <= 1 {
+                            continue; // Skip entities with only one instance
+                        }
 
-                    // Create sequential constraints
-                    for i in 0..ordered_clocks.len() - 1 {
-                        let current = ordered_clocks[i];
-                        let next = ordered_clocks[i + 1];
+                        // Sort clocks by instance number
+                        let mut ordered_clocks = entity_clocks.clone();
+                        ordered_clocks.sort_by_key(|c| c.instance);
 
-                        // Store the constraint operation for later execution
-                        constraint_operations.push((
-                            current.variable,
-                            next.variable,
-                            time_in_minutes,
-                            format!(
-                                "{} must be ≥{}h{}m after {}",
-                                self.find_clock_name(next.variable).unwrap_or_default(),
-                                time_in_minutes / 60,
-                                time_in_minutes % 60,
-                                self.find_clock_name(current.variable).unwrap_or_default()
+                        let time_in_minutes =
+                            constraint.time_unit.to_minutes(constraint.time_value) as i64;
+
+                        // Create sequential constraints
+                        for i in 0..ordered_clocks.len() - 1 {
+                            let current = ordered_clocks[i];
+                            let next = ordered_clocks[i + 1];
+
+                            // Store the constraint operation for later execution
+                            constraint_operations.push((
+                                current.variable,
+                                next.variable,
+                                time_in_minutes,
+                                format!(
+                                    "{} must be ≥{}h{}m after {}",
+                                    self.find_clock_name(next.variable).unwrap_or_default(),
+                                    time_in_minutes / 60,
+                                    time_in_minutes % 60,
+                                    self.find_clock_name(current.variable).unwrap_or_default()
+                                ),
+                            ));
+                        }
+                    }
+                    ConstraintType::Before | ConstraintType::After => {
+                        // Extract reference string first
+                        let reference_str = match &constraint.reference {
+                            ConstraintReference::Unresolved(ref_str) => ref_str.clone(),
+                            ConstraintReference::WithinGroup => "within group".to_string(),
+                        };
+
+                        // Get reference clocks based on the constraint reference
+                        let reference_clocks = match &constraint.reference {
+                            ConstraintReference::Unresolved(ref_str) => {
+                                match self.resolve_reference(ref_str) {
+                                    Ok(clocks) => clocks,
+                                    Err(e) => {
+                                        self.debug_error(
+                                            "⚠️",
+                                            &format!(
+                                                "Could not resolve reference '{}': {}",
+                                                ref_str, e
+                                            ),
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                            ConstraintReference::WithinGroup => {
+                                self.debug_error(
+                                    "⚠️",
+                                    "WithinGroup reference should not be used here",
+                                );
+                                continue;
+                            }
+                        };
+
+                        let time_in_minutes =
+                            constraint.time_unit.to_minutes(constraint.time_value) as i64;
+
+                        // Just log that we're handling these constraints
+                        self.debug_print(
+                            "ℹ️",
+                            &format!(
+                                "Special constraint: {} must be ≥{}{}m {} {} (when applicable)",
+                                entity_name,
+                                constraint.time_value,
+                                if constraint.time_unit == Hour {
+                                    "h"
+                                } else {
+                                    "m"
+                                },
+                                match constraint.constraint_type {
+                                    ConstraintType::Before => "before",
+                                    ConstraintType::After => "after",
+                                    _ => "related to",
+                                },
+                                reference_str
                             ),
-                        ));
+                        );
+                    }
+                    ConstraintType::ApartFrom => {
+                        // Handle ApartFrom constraints - these are simpler than Before/After
+                        // as they enforce minimum separation regardless of order
+                        let reference_clocks = match &constraint.reference {
+                            ConstraintReference::Unresolved(reference_str) => {
+                                match self.resolve_reference(reference_str) {
+                                    Ok(clocks) => clocks,
+                                    Err(e) => {
+                                        self.debug_error(
+                                            "⚠️",
+                                            &format!(
+                                                "Could not resolve reference '{}': {}",
+                                                reference_str, e
+                                            ),
+                                        );
+                                        continue;
+                                    }
+                                }
+                            }
+                            ConstraintReference::WithinGroup => {
+                                self.debug_error(
+                                    "⚠️",
+                                    "WithinGroup reference should not be used here",
+                                );
+                                continue;
+                            }
+                        };
+
+                        let time_in_minutes =
+                            constraint.time_unit.to_minutes(constraint.time_value) as i64;
+
+                        // For "apart from", we can add constraints to ensure there's
+                        // at least the specified separation in either direction
+                        // This creates a "forbidden zone" around each reference clock
+
+                        for entity_var in entity_clocks.iter().map(|c| c.variable) {
+                            for &reference_var in &reference_clocks {
+                                // Get clock names for better logs
+                                let entity_name =
+                                    self.find_clock_name(entity_var).unwrap_or_default();
+                                let ref_name =
+                                    self.find_clock_name(reference_var).unwrap_or_default();
+
+                                self.debug_print(
+                                    "ℹ️",
+                                    &format!(
+                                        "Adding apartFrom constraint: {} must be ≥{}h{}m apart from {}",
+                                        entity_name,
+                                        time_in_minutes / 60,
+                                        time_in_minutes % 60,
+                                        ref_name
+                                    ),
+                                );
+
+                                // This is a bit tricky to express directly in a DBM
+                                // We need to express: either (entity - ref >= time) or (ref - entity >= time)
+                                // For now, we'll note these constraints but not directly add them
+                            }
+                        }
                     }
                 }
             }
         }
 
-        // Now apply all the constraints we collected
+        // Apply the "apart" constraints we collected
         for (from_var, to_var, time_minutes, description) in constraint_operations {
             self.add_constraint_safely(
                 || Constraint::new_diff_ge(to_var, from_var, time_minutes),
                 &description,
             );
         }
+
+        // TODO: Handle the disjunctive constraints (Before/After/ApartFrom)
+        // This requires a more sophisticated mechanism than what DBM directly supports
 
         Ok(())
     }

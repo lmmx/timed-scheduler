@@ -35,7 +35,7 @@ pub fn example() -> Result<(), String> {
             "null",
             "3",
             "3x daily",
-            "[\"≥6h apart\"]",
+            "[\"≥6h apart\", \"≥1h before food\", \"≥2h after food\"]",
             // "[\"≥1h before food\", \"≥2h after food\", \"≥2h apart from med\", \"≥6h apart\"]",
             "in 1tsp water",
         ],
