@@ -94,48 +94,88 @@ impl<'a> ScheduleExtractor<'a> {
 
     fn extract_justified_global(&self) -> Result<HashMap<String, i32>, String> {
         // 1) Collect all clocks with their bounds
-        let mut all_vars: Vec<(String, i64, i64)> = Vec::new();
+        let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
         for (clock_id, info) in &*self.clocks {
             let lb = self.zone.get_lower_bound(info.variable).unwrap_or(0);
             let ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440);
-            all_vars.push((clock_id.clone(), lb, ub));
+            // Also store the entity name and instance number for topological ordering
+            all_vars.push((
+                clock_id.clone(),
+                lb,
+                ub,
+                info.instance,
+                info.entity_name.clone(),
+            ));
         }
-
-        // 2) Sort them by lb ascending
-        all_vars.sort_by_key(|(_, lb, _)| *lb);
 
         // Edge case: only one clock
         if all_vars.len() <= 1 {
             return self.extract_centered();
         }
 
-        // 3) Pin first to its lb, last to its ub
-        let (first_id, first_lb, _) = &all_vars[0];
-        let (last_id, _, last_ub) = &all_vars[all_vars.len() - 1];
-        let start = *first_lb;
-        let end = *last_ub;
+        // 2) Sort first by entity name, then by instance number to ensure topological order
+        all_vars.sort_by(
+            |(_, _, _, instance_a, entity_a), (_, _, _, instance_b, entity_b)| {
+                // First sort by entity name
+                let entity_cmp = entity_a.cmp(entity_b);
+                if entity_cmp != std::cmp::Ordering::Equal {
+                    return entity_cmp;
+                }
+                // Then by instance number if same entity
+                instance_a.cmp(instance_b)
+            },
+        );
 
-        let mut schedule = HashMap::new();
-        schedule.insert(first_id.clone(), start as i32);
-        schedule.insert(last_id.clone(), end as i32);
+        // Find the feasible span for the entire schedule
+        let global_min = all_vars
+            .iter()
+            .map(|(_, lb, _, _, _)| *lb)
+            .max()
+            .unwrap_or(0);
+        let global_max = all_vars
+            .iter()
+            .map(|(_, _, ub, _, _)| *ub)
+            .min()
+            .unwrap_or(1440);
 
-        // 4) Distribute the middle clocks
-        let total_span = end - start;
-        for i in 1..all_vars.len() - 1 {
-            let (clk_id, lb, ub) = &all_vars[i];
-
-            // Skip if we already set it (could be the same as first or last)
-            if clk_id == first_id || clk_id == last_id {
-                continue;
-            }
-
-            let ideal = start + (total_span * i as i64) / ((all_vars.len() - 1) as i64);
-            let clamped = ideal.clamp(*lb, *ub);
-            schedule.insert(clk_id.clone(), clamped as i32);
+        // Safety check: ensure we have a valid span
+        if global_min >= global_max {
+            // If there's no valid span where all clocks can be placed
+            // fall back to centered approach and let relaxation handle it
+            return self.extract_centered();
         }
 
-        // 5) Relax schedule to ensure all constraints are satisfied
+        let mut schedule = HashMap::new();
+
+        // Distribute events evenly across the feasible span
+        let total_span = global_max - global_min;
+        let count = all_vars.len();
+
+        // Use the first and last bounds but stay within global feasible region
+        for (i, (clock_id, lb, ub, _, _)) in all_vars.iter().enumerate() {
+            let position: i64;
+
+            if i == 0 {
+                // First clock at the beginning of span
+                position = global_min.max(*lb);
+            } else if i == count - 1 {
+                // Last clock at the end of span
+                position = global_max.min(*ub);
+            } else {
+                // Intermediate clocks evenly distributed
+                position = global_min + (total_span * i as i64) / (count as i64 - 1);
+            }
+
+            // Always clamp to this clock's individual bounds
+            let clamped = position.clamp(*lb, *ub);
+            schedule.insert(clock_id.clone(), clamped as i32);
+        }
+
+        // Relax schedule to ensure all constraints are satisfied
         self.relax_schedule(&mut schedule)?;
+
+        // Final validation to ensure we haven't violated any topological ordering constraints
+        self.validate_topological_order(&mut schedule)?;
 
         Ok(schedule)
     }
@@ -145,11 +185,18 @@ impl<'a> ScheduleExtractor<'a> {
         // calculating the ideal spacing between events
 
         // 1) Collect all clocks with their bounds
-        let mut all_vars: Vec<(String, i64, i64)> = Vec::new();
+        let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
         for (clock_id, info) in &*self.clocks {
             let lb = self.zone.get_lower_bound(info.variable).unwrap_or(0);
             let ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440);
-            all_vars.push((clock_id.clone(), lb, ub));
+            // Also store the entity name and instance number for topological ordering
+            all_vars.push((
+                clock_id.clone(),
+                lb,
+                ub,
+                info.instance,
+                info.entity_name.clone(),
+            ));
         }
 
         // Edge case: only one clock
@@ -157,20 +204,38 @@ impl<'a> ScheduleExtractor<'a> {
             return self.extract_centered();
         }
 
+        // Sort first by entity, then by instance within the same entity
+        all_vars.sort_by(
+            |(_, _, _, instance_a, entity_a), (_, _, _, instance_b, entity_b)| {
+                // First sort by entity name
+                let entity_cmp = entity_a.cmp(entity_b);
+                if entity_cmp != std::cmp::Ordering::Equal {
+                    return entity_cmp;
+                }
+                // Then by instance number if same entity
+                instance_a.cmp(instance_b)
+            },
+        );
+
         // Find overall bounds of the entire schedule
-        let global_min = all_vars.iter().map(|(_, lb, _)| *lb).min().unwrap_or(0);
-        let global_max = all_vars.iter().map(|(_, _, ub)| *ub).max().unwrap_or(1440);
+        let global_min = all_vars
+            .iter()
+            .map(|(_, lb, _, _, _)| *lb)
+            .max()
+            .unwrap_or(0);
+        let global_max = all_vars
+            .iter()
+            .map(|(_, _, ub, _, _)| *ub)
+            .min()
+            .unwrap_or(1440);
         let total_span = global_max - global_min;
 
         // Calculate ideal separation
         let ideal_gap = total_span / (all_vars.len() as i64 - 1);
 
-        // Sort by midpoint to get an ordering for even distribution
-        all_vars.sort_by_key(|(_, lb, ub)| (lb + ub) / 2);
-
         // Create initial schedule with maximum spread
         let mut schedule = HashMap::new();
-        for (i, (clock_id, lb, ub)) in all_vars.iter().enumerate() {
+        for (i, (clock_id, lb, ub, _, _)) in all_vars.iter().enumerate() {
             let ideal_time = global_min + (ideal_gap * i as i64);
             let clamped = ideal_time.clamp(*lb, *ub);
             schedule.insert(clock_id.clone(), clamped as i32);
@@ -179,7 +244,54 @@ impl<'a> ScheduleExtractor<'a> {
         // Relax schedule to ensure all constraints are satisfied
         self.relax_schedule(&mut schedule)?;
 
+        // Final validation to ensure we haven't violated any topological ordering constraints
+        self.validate_topological_order(&mut schedule)?;
+
         Ok(schedule)
+    }
+
+    // New method to validate that entity instances are scheduled in topological order
+    fn validate_topological_order(
+        &self,
+        schedule: &mut HashMap<String, i32>,
+    ) -> Result<(), String> {
+        // Group clocks by entity
+        let mut entity_clocks: HashMap<String, Vec<(String, usize, i32)>> = HashMap::new();
+
+        for (clock_id, &time) in schedule.iter() {
+            if let Some(info) = self.clocks.get(clock_id) {
+                entity_clocks
+                    .entry(info.entity_name.clone())
+                    .or_insert_with(Vec::new)
+                    .push((clock_id.clone(), info.instance, time));
+            }
+        }
+
+        // Check each entity's clocks are in correct order
+        for (_entity_name, clocks) in entity_clocks.iter() {
+            if clocks.len() <= 1 {
+                continue; // Skip entities with only one instance
+            }
+
+            // Sort by instance number
+            let mut ordered_clocks = clocks.clone();
+            ordered_clocks.sort_by_key(|&(_, instance, _)| instance);
+
+            // Verify ordering and fix if needed
+            for i in 0..ordered_clocks.len() - 1 {
+                let (_id1, _, time1) = &ordered_clocks[i];
+                let (id2, _, time2) = &ordered_clocks[i + 1];
+
+                // If later instance is scheduled earlier, adjust it
+                if time2 <= time1 {
+                    // Reschedule the second clock at least 1 minute after the first
+                    let new_time = time1 + 1;
+                    schedule.insert(id2.clone(), new_time);
+                }
+            }
+        }
+
+        Ok(())
     }
 
     fn relax_schedule(&self, schedule: &mut HashMap<String, i32>) -> Result<(), String> {
