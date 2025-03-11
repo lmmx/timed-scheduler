@@ -76,6 +76,38 @@ impl<'a> ScheduleExtractor<'a> {
         Ok(())
     }
 
+    // Sort clocks topologically by entity name and instance number
+    fn sort_clocks_topologically(&self) -> Vec<(String, i64, i64, usize, String)> {
+        let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
+        
+        // Collect all clocks with their bounds
+        for (clock_id, info) in &*self.clocks {
+            let bounds = self.get_bounds(info.variable);
+            all_vars.push((
+                clock_id.clone(),
+                bounds.lb,
+                bounds.ub,
+                info.instance,
+                info.entity_name.clone(),
+            ));
+        }
+        
+        // Sort first by entity name, then by instance number
+        all_vars.sort_by(
+            |(_, _, _, instance_a, entity_a), (_, _, _, instance_b, entity_b)| {
+                // First sort by entity name
+                let entity_cmp = entity_a.cmp(entity_b);
+                if entity_cmp != std::cmp::Ordering::Equal {
+                    return entity_cmp;
+                }
+                // Then by instance number if same entity
+                instance_a.cmp(instance_b)
+            },
+        );
+        
+        all_vars
+    }
+
     fn extract_earliest(&self) -> Result<HashMap<String, i32>, String> {
         let mut schedule = HashMap::new();
         for (clock_id, info) in self.clocks.iter() {
@@ -105,37 +137,8 @@ impl<'a> ScheduleExtractor<'a> {
     }
 
     fn extract_justified_global(&self) -> Result<HashMap<String, i32>, String> {
-        // 1) Collect all clocks with their bounds
-        let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
-        for (clock_id, info) in &*self.clocks {
-            let bounds = self.get_bounds(info.variable);
-            // Also store the entity name and instance number for topological ordering
-            all_vars.push((
-                clock_id.clone(),
-                bounds.lb,
-                bounds.ub,
-                info.instance,
-                info.entity_name.clone(),
-            ));
-        }
-
-        // Edge case: only one clock
-        if all_vars.len() <= 1 {
-            return self.extract_centered();
-        }
-
-        // 2) Sort first by entity name, then by instance number to ensure topological order
-        all_vars.sort_by(
-            |(_, _, _, instance_a, entity_a), (_, _, _, instance_b, entity_b)| {
-                // First sort by entity name
-                let entity_cmp = entity_a.cmp(entity_b);
-                if entity_cmp != std::cmp::Ordering::Equal {
-                    return entity_cmp;
-                }
-                // Then by instance number if same entity
-                instance_a.cmp(instance_b)
-            },
-        );
+        // Collect all clocks with their bounds
+        let mut all_vars = self.sort_clocks_topologically();
 
         // Find the feasible span for the entire schedule
         let global_min = all_vars
@@ -195,37 +198,8 @@ impl<'a> ScheduleExtractor<'a> {
         // For max spread, we use a similar approach to justified, but we start by
         // calculating the ideal spacing between events
 
-        // 1) Collect all clocks with their bounds
-        let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
-        for (clock_id, info) in &*self.clocks {
-            let bounds = self.get_bounds(info.variable);
-            // Also store the entity name and instance number for topological ordering
-            all_vars.push((
-                clock_id.clone(),
-                bounds.lb,
-                bounds.ub,
-                info.instance,
-                info.entity_name.clone(),
-            ));
-        }
-
-        // Edge case: only one clock
-        if all_vars.len() <= 1 {
-            return self.extract_centered();
-        }
-
-        // Sort first by entity, then by instance within the same entity
-        all_vars.sort_by(
-            |(_, _, _, instance_a, entity_a), (_, _, _, instance_b, entity_b)| {
-                // First sort by entity name
-                let entity_cmp = entity_a.cmp(entity_b);
-                if entity_cmp != std::cmp::Ordering::Equal {
-                    return entity_cmp;
-                }
-                // Then by instance number if same entity
-                instance_a.cmp(instance_b)
-            },
-        );
+        // Collect all clocks with their bounds
+        let mut all_vars = self.sort_clocks_topologically();
 
         // Find overall bounds of the entire schedule
         let global_min = all_vars
