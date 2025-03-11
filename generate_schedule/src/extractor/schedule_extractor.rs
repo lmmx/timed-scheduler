@@ -62,8 +62,9 @@ impl<'a> ScheduleExtractor<'a> {
     fn validate_schedule(&self, schedule: &mut HashMap<String, i32>) -> Result<(), String> {
         for (clock_id, info) in self.clocks.iter() {
             if let Some(time) = schedule.get_mut(clock_id) {
-                let mut lb = self.zone.get_lower_bound(info.variable).unwrap_or(0) as i32;
-                let mut ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440) as i32;
+                let bounds = self.get_bounds(info.variable);
+                let mut lb = bounds.lb as i32;
+                let mut ub = bounds.ub as i32;
 
                 if *time < lb || *time > ub {
                     // Clamp to valid range
