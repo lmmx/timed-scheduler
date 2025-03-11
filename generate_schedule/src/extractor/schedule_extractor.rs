@@ -34,6 +34,16 @@ impl<'a> ScheduleExtractor<'a> {
         Bounds { lb, ub }
     }
 
+    fn is_within_bounds(&self, variable: impl AnyClock, time: i32) -> bool {
+        let bounds = self.get_bounds(variable);
+        time >= bounds.lb as i32 && time <= bounds.ub as i32
+    }
+    
+    fn clamp_to_bounds(&self, variable: impl AnyClock, time: i32) -> i32 {
+        let bounds = self.get_bounds(variable);
+        time.clamp(bounds.lb as i32, bounds.ub as i32)
+    }
+    
     // Check and enforce a difference constraint between two clocks
     // Returns true if the schedule was changed
     fn enforce_constraint(
@@ -82,6 +92,19 @@ impl<'a> ScheduleExtractor<'a> {
         Ok(false)
     }
 
+    fn extract_with_strategy<F>(&self, time_selector: F) -> Result<HashMap<String, i32>, String>
+    where
+        F: Fn(i64, i64) -> i64,
+    {
+        let mut schedule = HashMap::new();
+        for (clock_id, info) in self.clocks.iter() {
+            let bounds = self.get_bounds(info.variable);
+            let time = time_selector(bounds.lb, bounds.ub);
+            schedule.insert(clock_id.clone(), time as i32);
+        }
+        Ok(schedule)
+    }
+    
     pub fn extract_schedule(
         &self,
         strategy: ScheduleStrategy,
@@ -110,17 +133,12 @@ impl<'a> ScheduleExtractor<'a> {
     fn validate_schedule(&self, schedule: &mut HashMap<String, i32>) -> Result<(), String> {
         for (clock_id, info) in self.clocks.iter() {
             if let Some(time) = schedule.get_mut(clock_id) {
-                let bounds = self.get_bounds(info.variable);
-                let mut lb = bounds.lb as i32;
-                let mut ub = bounds.ub as i32;
-
-                if *time < lb || *time > ub {
+                if !self.is_within_bounds(info.variable, *time) {
                     // Clamp to valid range
-                    *time = *time.clamp(&mut lb, &mut ub);
+                    *time = self.clamp_to_bounds(info.variable, *time);
                 }
             }
         }
-
         Ok(())
     }
 
@@ -156,59 +174,53 @@ impl<'a> ScheduleExtractor<'a> {
         all_vars
     }
 
+    fn prepare_global_schedule(&self) -> Result<(Vec<(String, i64, i64, usize, String)>, i64, i64), String> {
+        // Collect all clocks with their bounds
+        let all_vars = self.sort_clocks_topologically();
+    
+        // Find the feasible span for the entire schedule
+        let global_min = all_vars.iter().map(|(_, lb, _, _, _)| *lb).max().unwrap_or(0);
+        let global_max = all_vars.iter().map(|(_, _, ub, _, _)| *ub).min().unwrap_or(1440);
+    
+        // Safety check: ensure we have a valid span
+        if global_min >= global_max {
+            return Err("No valid global span available".to_string());
+        }
+    
+        Ok((all_vars, global_min, global_max))
+    }
+
+    fn post_process_schedule(&self, mut schedule: HashMap<String, i32>) -> Result<HashMap<String, i32>, String> {
+        // Relax schedule to ensure all constraints are satisfied
+        self.relax_schedule(&mut schedule)?;
+        // Final validation to ensure we haven't violated any topological ordering constraints
+        self.validate_topological_order(&mut schedule)?;
+        Ok(schedule)
+    }
+
     fn extract_earliest(&self) -> Result<HashMap<String, i32>, String> {
-        let mut schedule = HashMap::new();
-        for (clock_id, info) in self.clocks.iter() {
-            let bounds = self.get_bounds(info.variable);
-            schedule.insert(clock_id.clone(), bounds.lb as i32);
-        }
-        Ok(schedule)
+        self.extract_with_strategy(|lb, _| lb)
     }
-
+    
     fn extract_latest(&self) -> Result<HashMap<String, i32>, String> {
-        let mut schedule = HashMap::new();
-        for (clock_id, info) in self.clocks.iter() {
-            let bounds = self.get_bounds(info.variable);
-            schedule.insert(clock_id.clone(), bounds.ub as i32);
-        }
-        Ok(schedule)
+        self.extract_with_strategy(|_, ub| ub)
     }
-
+    
     fn extract_centered(&self) -> Result<HashMap<String, i32>, String> {
-        let mut schedule = HashMap::new();
-        for (clock_id, info) in self.clocks.iter() {
-            let bounds = self.get_bounds(info.variable);
-            let mid = (bounds.lb + bounds.ub) / 2;
-            schedule.insert(clock_id.clone(), mid as i32);
-        }
-        Ok(schedule)
+        self.extract_with_strategy(|lb, ub| (lb + ub) / 2)
     }
 
     fn extract_justified_global(&self) -> Result<HashMap<String, i32>, String> {
-        // Collect all clocks with their bounds
-        let all_vars = self.sort_clocks_topologically();
-
-        // Find the feasible span for the entire schedule
-        let global_min = all_vars
-            .iter()
-            .map(|(_, lb, _, _, _)| *lb)
-            .max()
-            .unwrap_or(0);
-        let global_max = all_vars
-            .iter()
-            .map(|(_, _, ub, _, _)| *ub)
-            .min()
-            .unwrap_or(1440);
-
-        // Safety check: ensure we have a valid span
-        if global_min >= global_max {
-            // If there's no valid span where all clocks can be placed
-            // fall back to centered approach and let relaxation handle it
-            return self.extract_centered();
-        }
-
+        let result = self.prepare_global_schedule();
+        
+        // Check if we got a valid span
+        let (all_vars, global_min, global_max) = match result {
+            Ok(data) => data,
+            Err(_) => return self.extract_centered(), // Fall back to centered approach
+        };
+    
         let mut schedule = HashMap::new();
-
+    
         // Distribute events evenly across the feasible span
         let total_span = global_max - global_min;
         let count = all_vars.len();
@@ -232,34 +244,18 @@ impl<'a> ScheduleExtractor<'a> {
             let clamped = position.clamp(*lb, *ub);
             schedule.insert(clock_id.clone(), clamped as i32);
         }
-
-        // Relax schedule to ensure all constraints are satisfied
-        self.relax_schedule(&mut schedule)?;
-
-        // Final validation to ensure we haven't violated any topological ordering constraints
-        self.validate_topological_order(&mut schedule)?;
-
-        Ok(schedule)
+        self.post_process_schedule(schedule)
     }
 
     fn extract_max_spread_global(&self) -> Result<HashMap<String, i32>, String> {
-        // For max spread, we use a similar approach to justified, but we start by
-        // calculating the ideal spacing between events
-
-        // Collect all clocks with their bounds
-        let all_vars = self.sort_clocks_topologically();
-
-        // Find overall bounds of the entire schedule
-        let global_min = all_vars
-            .iter()
-            .map(|(_, lb, _, _, _)| *lb)
-            .max()
-            .unwrap_or(0);
-        let global_max = all_vars
-            .iter()
-            .map(|(_, _, ub, _, _)| *ub)
-            .min()
-            .unwrap_or(1440);
+        let result = self.prepare_global_schedule();
+        
+        // Check if we got a valid span
+        let (all_vars, global_min, global_max) = match result {
+            Ok(data) => data,
+            Err(_) => return self.extract_centered(), // Fall back to centered approach
+        };
+    
         let total_span = global_max - global_min;
 
         // Calculate ideal separation
@@ -272,14 +268,7 @@ impl<'a> ScheduleExtractor<'a> {
             let clamped = ideal_time.clamp(*lb, *ub);
             schedule.insert(clock_id.clone(), clamped as i32);
         }
-
-        // Relax schedule to ensure all constraints are satisfied
-        self.relax_schedule(&mut schedule)?;
-
-        // Final validation to ensure we haven't violated any topological ordering constraints
-        self.validate_topological_order(&mut schedule)?;
-
-        Ok(schedule)
+        self.post_process_schedule(schedule)
     }
 
     // New method to validate that entity instances are scheduled in topological order
