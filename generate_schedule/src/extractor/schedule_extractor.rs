@@ -138,7 +138,7 @@ impl<'a> ScheduleExtractor<'a> {
 
     fn extract_justified_global(&self) -> Result<HashMap<String, i32>, String> {
         // Collect all clocks with their bounds
-        let mut all_vars = self.sort_clocks_topologically();
+        let all_vars = self.sort_clocks_topologically();
 
         // Find the feasible span for the entire schedule
         let global_min = all_vars
@@ -199,7 +199,7 @@ impl<'a> ScheduleExtractor<'a> {
         // calculating the ideal spacing between events
 
         // Collect all clocks with their bounds
-        let mut all_vars = self.sort_clocks_topologically();
+        let all_vars = self.sort_clocks_topologically();
 
         // Find overall bounds of the entire schedule
         let global_min = all_vars
