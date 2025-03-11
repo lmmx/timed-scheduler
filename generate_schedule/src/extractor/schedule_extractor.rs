@@ -34,6 +34,54 @@ impl<'a> ScheduleExtractor<'a> {
         Bounds { lb, ub }
     }
 
+    // Check and enforce a difference constraint between two clocks
+    // Returns true if the schedule was changed
+    fn enforce_constraint(
+        &self,
+        schedule: &mut HashMap<String, i32>,
+        first_id: &str,
+        first_var: impl AnyClock + Copy,
+        first_time: i32,
+        second_id: &str,
+        second_var: impl AnyClock + Copy,
+        second_time: i32,
+    ) -> Result<bool, String> {
+        // Check if there's a difference constraint: second - first <= bound
+        if let Some(bound) = self.zone.get_bound(first_var, second_var).constant() {
+            // Check if our current schedule violates this constraint
+            if (second_time - first_time) > bound as i32 {
+                // Try adjusting the second clock first
+                let new_second_time = first_time + bound as i32;
+                let second_bounds = self.get_bounds(second_var);
+                let second_ub = second_bounds.ub as i32;
+    
+                // Make sure the new time is within second clock's upper bound
+                if new_second_time <= second_ub {
+                    schedule.insert(second_id.to_string(), new_second_time);
+                    return Ok(true);
+                }
+                
+                // If we can't move second clock down enough, try moving first clock up
+                let new_first_time = second_time - bound as i32;
+                let first_bounds = self.get_bounds(first_var);
+                let first_lb = first_bounds.lb as i32;
+    
+                if new_first_time >= first_lb {
+                    schedule.insert(first_id.to_string(), new_first_time);
+                    return Ok(true);
+                }
+                
+                // If neither adjustment works, report the conflict
+                return Err(format!(
+                    "Cannot satisfy constraint: {} - {} <= {} in relaxation",
+                    second_id, first_id, bound
+                ));
+            }
+        }
+        
+        Ok(false)
+    }
+
     pub fn extract_schedule(
         &self,
         strategy: ScheduleStrategy,
@@ -283,91 +331,50 @@ impl<'a> ScheduleExtractor<'a> {
         let mut changed = true;
         let mut iterations = 0;
         const MAX_ITERATIONS: usize = 100; // Safety limit to prevent infinite loops
-
+    
         while changed && iterations < MAX_ITERATIONS {
             changed = false;
             iterations += 1;
-
+    
             // For each pair of clocks, check all difference constraints from the DBM
             for (i_id, i_info) in self.clocks.iter() {
                 let i_var = i_info.variable;
                 let i_time = *schedule.get(i_id).unwrap_or(&0);
-
+    
                 for (j_id, j_info) in self.clocks.iter() {
                     if i_id == j_id {
                         continue; // Skip same clock
                     }
-
+    
                     let j_var = j_info.variable;
                     let j_time = *schedule.get(j_id).unwrap_or(&0);
-
-                    // Check if there's a difference constraint: j - i <= bound
-                    // This means i must be at least (bound) minutes before j
-                    if let Some(bound) = self.zone.get_bound(i_var, j_var).constant() {
-                        // Check if our current schedule violates this constraint
-                        if (j_time - i_time) > bound as i32 {
-                            // We need to adjust one of the clocks
-                            // For simplicity, we'll move j closer to i
-                            let new_j_time = i_time + bound as i32;
-                            let j_ub = self.zone.get_upper_bound(j_var).unwrap_or(1440) as i32;
-
-                            // Make sure the new time is within j's upper bound
-                            if new_j_time <= j_ub {
-                                schedule.insert(j_id.clone(), new_j_time);
-                                changed = true;
-                            } else {
-                                // If we can't move j down enough, try moving i up
-                                let new_i_time = j_time - bound as i32;
-                                let i_lb = self.zone.get_lower_bound(i_var).unwrap_or(0) as i32;
-
-                                if new_i_time >= i_lb {
-                                    schedule.insert(i_id.clone(), new_i_time);
-                                    changed = true;
-                                } else {
-                                    // If neither adjustment works, report the conflict
-                                    return Err(format!(
-                                        "Cannot satisfy constraint: {} - {} <= {} in relaxation",
-                                        j_id, i_id, bound
-                                    ));
-                                }
-                            }
-                        }
+    
+                    // Check constraint in both directions
+                    // First direction: j - i <= bound
+                    match self.enforce_constraint(
+                        schedule, i_id, i_var, i_time, j_id, j_var, j_time
+                    ) {
+                        Ok(true) => changed = true,
+                        Err(msg) => return Err(msg),
+                        _ => {}
                     }
-
-                    // Also check the other direction: i - j <= bound
-                    // This means j must be at least (bound) minutes before i
-                    if let Some(bound) = self.zone.get_bound(j_var, i_var).constant() {
-                        if (i_time - j_time) > bound as i32 {
-                            let new_i_time = j_time + bound as i32;
-                            let i_ub = self.zone.get_upper_bound(i_var).unwrap_or(1440) as i32;
-
-                            if new_i_time <= i_ub {
-                                schedule.insert(i_id.clone(), new_i_time);
-                                changed = true;
-                            } else {
-                                let new_j_time = i_time - bound as i32;
-                                let j_lb = self.zone.get_lower_bound(j_var).unwrap_or(0) as i32;
-
-                                if new_j_time >= j_lb {
-                                    schedule.insert(j_id.clone(), new_j_time);
-                                    changed = true;
-                                } else {
-                                    return Err(format!(
-                                        "Cannot satisfy constraint: {} - {} <= {} in relaxation",
-                                        i_id, j_id, bound
-                                    ));
-                                }
-                            }
-                        }
+                    
+                    // Second direction: i - j <= bound
+                    match self.enforce_constraint(
+                        schedule, j_id, j_var, j_time, i_id, i_var, i_time
+                    ) {
+                        Ok(true) => changed = true,
+                        Err(msg) => return Err(msg),
+                        _ => {}
                     }
                 }
             }
         }
-
+    
         if iterations >= MAX_ITERATIONS {
             return Err("Failed to stabilize schedule after maximum iterations".to_string());
         }
-
+    
         Ok(())
     }
 
