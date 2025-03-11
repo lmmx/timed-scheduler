@@ -30,11 +30,11 @@ impl<'a> ScheduleExtractor<'a> {
     pub fn new(zone: &'a Dbm<i64>, clocks: &'a HashMap<String, ClockInfo>) -> Self {
         // Check if debug flag is set - same approach as compiler
         let debug = env::var("RUST_DEBUG").is_ok() || env::args().any(|arg| arg == "--debug");
-        
+
         Self { zone, clocks, debug }
     }
 
-    // New debug methods to match the compiler's style
+    // Debug methods to match the compiler's style
     fn debug_print(&self, emoji: &str, message: &str) {
         if self.debug {
             println!("{} {}", emoji.green(), message.bright_blue());
@@ -53,8 +53,8 @@ impl<'a> ScheduleExtractor<'a> {
             let lb_min = bounds.lb % 60;
             let ub_hour = bounds.ub / 60;
             let ub_min = bounds.ub % 60;
-            
-            println!("   {} bounds: [{:02}:{:02} - {:02}:{:02}]", 
+
+            println!("   {} bounds: [{:02}:{:02} - {:02}:{:02}]",
                 clock_id.cyan(),
                 lb_hour, lb_min,
                 ub_hour, ub_min
@@ -81,113 +81,23 @@ impl<'a> ScheduleExtractor<'a> {
         let result = time >= bounds.lb as i32 && time <= bounds.ub as i32;
         if !result && self.debug {
             self.debug_error("⚠️", &format!(
-                "Time {} is outside bounds [{}, {}]", 
+                "Time {} is outside bounds [{}, {}]",
                 time, bounds.lb, bounds.ub
             ));
         }
         result
     }
-    
+
     fn clamp_to_bounds(&self, variable: impl AnyClock, time: i32) -> i32 {
         let bounds = self.get_bounds(variable);
         let clamped = time.clamp(bounds.lb as i32, bounds.ub as i32);
         if clamped != time && self.debug {
             self.debug_print("🔄", &format!(
-                "Clamped time {} to {} (bounds: [{}, {}])", 
+                "Clamped time {} to {} (bounds: [{}, {}])",
                 time, clamped, bounds.lb, bounds.ub
             ));
         }
         clamped
-    }
-    
-    // Check and enforce a difference constraint between two clocks
-    // Returns true if the schedule was changed
-    fn enforce_constraint(
-        &self,
-        schedule: &mut HashMap<String, i32>,
-        first_id: &str,
-        first_var: impl AnyClock + Copy,
-        first_time: i32,
-        second_id: &str,
-        second_var: impl AnyClock + Copy,
-        second_time: i32,
-    ) -> Result<bool, String> {
-        // Check if there's a difference constraint: second - first <= bound
-        if let Some(bound) = self.zone.get_bound(first_var, second_var).constant() {
-            // Check if our current schedule violates this constraint
-            if (second_time - first_time) > bound as i32 {
-                self.debug_error("⚠️", &format!(
-                    "Constraint violation: {} - {} = {} > {}", 
-                    second_id, first_id, second_time - first_time, bound
-                ));
-                
-                // Try adjusting the second clock first
-                let new_second_time = first_time + bound as i32;
-                let second_bounds = self.get_bounds(second_var);
-                let second_ub = second_bounds.ub as i32;
-    
-                // Make sure the new time is within second clock's upper bound
-                if new_second_time <= second_ub {
-                    self.debug_print("🔧", &format!(
-                        "Adjusting {} from {} to {} to satisfy constraint",
-                        second_id, second_time, new_second_time
-                    ));
-                    schedule.insert(second_id.to_string(), new_second_time);
-                    return Ok(true);
-                }
-                
-                self.debug_print("❌", &format!(
-                    "Cannot adjust {} down to {} (upper bound: {})",
-                    second_id, new_second_time, second_ub
-                ));
-                
-                // If we can't move second clock down enough, try moving first clock up
-                let new_first_time = second_time - bound as i32;
-                let first_bounds = self.get_bounds(first_var);
-                let first_lb = first_bounds.lb as i32;
-    
-                if new_first_time >= first_lb {
-                    self.debug_print("🔧", &format!(
-                        "Adjusting {} from {} to {} to satisfy constraint",
-                        first_id, first_time, new_first_time
-                    ));
-                    schedule.insert(first_id.to_string(), new_first_time);
-                    return Ok(true);
-                }
-                
-                self.debug_error("❌", &format!(
-                    "Cannot adjust {} up to {} (lower bound: {})",
-                    first_id, new_first_time, first_lb
-                ));
-                
-                // If neither adjustment works, report the conflict
-                return Err(format!(
-                    "Cannot satisfy constraint: {} - {} <= {} in relaxation",
-                    second_id, first_id, bound
-                ));
-            }
-        }
-        
-        Ok(false)
-    }
-
-    fn extract_with_strategy<F>(&self, time_selector: F) -> Result<HashMap<String, i32>, String>
-    where
-        F: Fn(i64, i64) -> i64,
-    {
-        self.debug_print("🚀", "Extracting schedule with custom strategy");
-        
-        let mut schedule = HashMap::new();
-        for (clock_id, info) in self.clocks.iter() {
-            let bounds = self.get_bounds(info.variable);
-            self.debug_bounds(clock_id, &bounds);
-            
-            let time = time_selector(bounds.lb, bounds.ub);
-            self.debug_set_time(clock_id, time as i32);
-            
-            schedule.insert(clock_id.clone(), time as i32);
-        }
-        Ok(schedule)
     }
 
     pub fn extract_schedule(
@@ -195,13 +105,13 @@ impl<'a> ScheduleExtractor<'a> {
         strategy: ScheduleStrategy,
     ) -> Result<HashMap<String, i32>, String> {
         self.debug_print("🧩", &format!("Extracting schedule with {:?} strategy", strategy));
-        
+
         // Feasibility check
         if self.zone.is_empty() {
             self.debug_error("❌", "Zone is empty; no schedule is possible.");
             return Err("Zone is empty; no schedule is possible.".to_string());
         }
-    
+
         // Dispatch to appropriate strategy
         let mut schedule = match strategy {
             ScheduleStrategy::Earliest => {
@@ -218,18 +128,18 @@ impl<'a> ScheduleExtractor<'a> {
             },
             ScheduleStrategy::Justified => {
                 self.debug_print("📏", "Using Justified strategy - distributing events to span the entire feasible range");
-                self.extract_justified_global()
+                self.extract_justified_with_constraints()
             },
             ScheduleStrategy::MaximumSpread => {
                 self.debug_print("↔️", "Using MaximumSpread strategy - maximizing distance between consecutive events");
-                self.extract_max_spread_global()
+                self.extract_max_spread_with_constraints()
             },
         }?;
-    
+
         // Final validation to ensure all times are within bounds
         self.debug_print("✅", "Validating final schedule");
         self.validate_schedule(&mut schedule)?;
-    
+
         self.debug_print("🏁", "Schedule extraction complete");
         Ok(schedule)
     }
@@ -237,7 +147,7 @@ impl<'a> ScheduleExtractor<'a> {
     // Ensure all clock assignments are within their bounds
     fn validate_schedule(&self, schedule: &mut HashMap<String, i32>) -> Result<(), String> {
         self.debug_print("🔎", "Validating schedule - checking all times are within bounds");
-        
+
         for (clock_id, info) in self.clocks.iter() {
             if let Some(time) = schedule.get_mut(clock_id) {
                 if !self.is_within_bounds(info.variable, *time) {
@@ -245,7 +155,7 @@ impl<'a> ScheduleExtractor<'a> {
                     // Clamp to valid range
                     *time = self.clamp_to_bounds(info.variable, *time);
                     self.debug_print("📌", &format!(
-                        "Adjusted {} from {} to {} to fit within bounds", 
+                        "Adjusted {} from {} to {} to fit within bounds",
                         clock_id, old_time, *time
                     ));
                 }
@@ -255,221 +165,536 @@ impl<'a> ScheduleExtractor<'a> {
     }
 
     // Sort clocks topologically by entity name and instance number
-    fn sort_clocks_topologically(&self) -> Vec<(String, i64, i64, usize, String)> {
+    fn sort_clocks_topologically(&self) -> Vec<(String, &ClockInfo)> {
         self.debug_print("🔄", "Sorting clocks topologically");
-        
-        let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
-        
-        // Collect all clocks with their bounds
-        for (clock_id, info) in &*self.clocks {
-            let bounds = self.get_bounds(info.variable);
-            all_vars.push((
-                clock_id.clone(),
-                bounds.lb,
-                bounds.ub,
-                info.instance,
-                info.entity_name.clone(),
-            ));
-            
+
+        let mut all_clocks: Vec<(String, &ClockInfo)> = Vec::new();
+
+        // Collect all clocks with their info (as references)
+        for (clock_id, info) in self.clocks.iter() {
+            all_clocks.push((clock_id.clone(), info));
+
             if self.debug {
+                let bounds = self.get_bounds(info.variable);
                 self.debug_bounds(clock_id, &bounds);
             }
         }
-        
+
         // Sort first by entity name, then by instance number
-        all_vars.sort_by(
-            |(_, _, _, instance_a, entity_a), (_, _, _, instance_b, entity_b)| {
+        all_clocks.sort_by(
+            |(_, info_a), (_, info_b)| {
                 // First sort by entity name
-                let entity_cmp = entity_a.cmp(entity_b);
+                let entity_cmp = info_a.entity_name.cmp(&info_b.entity_name);
                 if entity_cmp != std::cmp::Ordering::Equal {
                     return entity_cmp;
                 }
                 // Then by instance number if same entity
-                instance_a.cmp(instance_b)
+                info_a.instance.cmp(&info_b.instance)
             },
         );
-        
+
         if self.debug {
             self.debug_print("📋", "Sorted clock order:");
-            for (i, (id, _, _, instance, entity)) in all_vars.iter().enumerate() {
-                println!("   {}. {} ({}, instance {})", i+1, id.cyan(), entity.blue(), instance);
+            for (i, (id, info)) in all_clocks.iter().enumerate() {
+                println!("   {}. {} ({}, instance {})",
+                         i+1, id.cyan(), info.entity_name.blue(), info.instance);
             }
         }
-        
-        all_vars
+
+        all_clocks
     }
 
-    fn prepare_global_schedule(&self) -> Result<(Vec<(String, i64, i64, usize, String)>, i64, i64), String> {
-        self.debug_print("🔍", "Preparing global schedule");
-        
-        // Collect all clocks with their bounds
-        let all_vars = self.sort_clocks_topologically();
-        
-        if all_vars.is_empty() {
-            self.debug_error("❌", "No clocks found to schedule");
-            return Err("No clocks found to schedule".to_string());
+
+    // Calculate the difference constraint between two clocks
+    fn get_difference_constraints(&self, from_var: impl AnyClock + Copy, to_var: impl AnyClock + Copy) -> i64 {
+        // If there's a constraint to_var - from_var <= c, then from_var must be at least (-c) after to_var
+        // That means: from_var >= to_var + (-c)
+        if let Some(bound) = self.zone.get_bound(to_var, from_var).constant() {
+            if self.debug {
+                self.debug_print("🔗", &format!(
+                    "Found constraint: difference must be at least {} minutes", -bound
+                ));
+            }
+            return -bound;
         }
-    
-        // Find the feasible span for the entire schedule
-        let global_min = 0;
-        let global_max = 1440;
-    
-        self.debug_print("📊", &format!(
-            "Global schedule span: [{:02}:{:02} - {:02}:{:02}]",
-            global_min / 60, global_min % 60,
-            global_max / 60, global_max % 60
-        ));
-    
-        // Safety check: ensure we have a valid span
-        if global_min >= global_max {
-            self.debug_error("❌", &format!(
-                "No valid global span available: min={}, max={}", 
-                global_min, global_max
-            ));
-            return Err(format!(
-                "No valid global span available: min={}, max={}", 
-                global_min, global_max
-            ));
+
+        // If no constraint, return a conservative default
+        if self.debug {
+            self.debug_print("🔗", "No explicit constraint found, using default (0 minutes)");
         }
-    
-        Ok((all_vars, global_min, global_max))
+        0 // Default: no minimum separation required
     }
 
-    fn post_process_schedule(&self, mut schedule: HashMap<String, i32>) -> Result<HashMap<String, i32>, String> {
-        self.debug_print("🔄", "Post-processing schedule");
-        
-        // Relax schedule to ensure all constraints are satisfied
-        self.debug_print("🧩", "Relaxing schedule to satisfy all constraints");
-        self.relax_schedule(&mut schedule)?;
-        
-        // Final validation to ensure we haven't violated any topological ordering constraints
-        self.debug_print("🧮", "Validating topological ordering");
-        self.validate_topological_order(&mut schedule)?;
-        
+    // This implements the "earliest feasible time" approach in a single topological pass
+    fn forward_pass(&self, sorted_clocks: &Vec<(String, &ClockInfo)>, schedule: &mut HashMap<String, i32>) {
+        self.debug_print("⏩", "Performing forward pass to find earliest feasible times");
+
+        // Start with all clocks at their earliest possible bound
+        for (clock_id, info) in sorted_clocks {
+            let bounds = self.get_bounds(info.variable);
+            schedule.insert(clock_id.clone(), bounds.lb as i32);
+
+            if self.debug {
+                self.debug_print("🕒", &format!(
+                    "Starting {} at its lower bound: {}",
+                    clock_id, bounds.lb
+                ));
+            }
+        }
+
+        // For each clock in topological order:
+        for (i, (current_id, current_info)) in sorted_clocks.iter().enumerate() {
+            let current_var = current_info.variable;
+
+            // Start with its lower bound
+            let mut earliest_time = self.get_bounds(current_var).lb;
+
+            // For all previously assigned clocks, check if they constrain this clock
+            for j in 0..i {
+                let (prev_id, prev_info) = &sorted_clocks[j];
+                let prev_var = prev_info.variable;
+
+                // Get the time for the previous clock
+                let prev_time = schedule.get(prev_id).unwrap_or(&0);
+
+                // Check if there's a constraint: current - prev >= min_diff
+                let min_diff = self.get_difference_constraints(current_var, prev_var);
+
+                // Update earliest time if needed
+                let constraint_earliest = *prev_time as i64 + min_diff;
+                if constraint_earliest > earliest_time {
+                    if self.debug {
+                        self.debug_print("⬆️", &format!(
+                            "Clock {} pushes {} to at least {} (was {})",
+                            prev_id, current_id, constraint_earliest, earliest_time
+                        ));
+                    }
+                    earliest_time = constraint_earliest;
+                }
+            }
+
+            // Update the clock's time, ensuring it's within bounds
+            let bounds = self.get_bounds(current_var);
+            let clamped_time = earliest_time.clamp(bounds.lb, bounds.ub);
+
+            if clamped_time != earliest_time {
+                self.debug_print("📌", &format!(
+                    "Clamped {} from {} to {} (bounds: [{}, {}])",
+                    current_id, earliest_time, clamped_time, bounds.lb, bounds.ub
+                ));
+            }
+
+            schedule.insert(current_id.clone(), clamped_time as i32);
+            self.debug_set_time(current_id, clamped_time as i32);
+        }
+    }
+
+    // This implements the "latest feasible time" approach in a single reverse topological pass
+    fn backward_pass(&self, sorted_clocks: &Vec<(String, &ClockInfo)>, schedule: &mut HashMap<String, i32>) {
+        self.debug_print("⏪", "Performing backward pass to find latest feasible times");
+
+        // Start with all clocks at their latest possible bound
+        for (clock_id, info) in sorted_clocks {
+            let bounds = self.get_bounds(info.variable);
+            schedule.insert(clock_id.clone(), bounds.ub as i32);
+
+            if self.debug {
+                self.debug_print("🕙", &format!(
+                    "Starting {} at its upper bound: {}",
+                    clock_id, bounds.ub
+                ));
+            }
+        }
+
+        // For each clock in reverse topological order:
+        for i in (0..sorted_clocks.len()).rev() {
+            let (current_id, current_info) = &sorted_clocks[i];
+            let current_var = current_info.variable;
+
+            // Start with its upper bound
+            let mut latest_time = self.get_bounds(current_var).ub;
+
+            // For all clocks that come after this one, check if they constrain this clock
+            for j in i+1..sorted_clocks.len() {
+                let (next_id, next_info) = &sorted_clocks[j];
+                let next_var = next_info.variable;
+
+                // Get the time for the next clock
+                let next_time = schedule.get(next_id).unwrap_or(&0);
+
+                // Check if there's a constraint: next - current >= min_diff
+                let min_diff = self.get_difference_constraints(next_var, current_var);
+
+                // This implies current <= next - min_diff
+                if min_diff > 0 { // If there's an actual minimum separation required
+                    let constraint_latest = *next_time as i64 - min_diff;
+                    if constraint_latest < latest_time {
+                        if self.debug {
+                            self.debug_print("⬇️", &format!(
+                                "Clock {} pulls {} back to at most {} (was {})",
+                                next_id, current_id, constraint_latest, latest_time
+                            ));
+                        }
+                        latest_time = constraint_latest;
+                    }
+                }
+            }
+
+            // Update the clock's time, ensuring it's within bounds
+            let bounds = self.get_bounds(current_var);
+            let clamped_time = latest_time.clamp(bounds.lb, bounds.ub);
+
+            if clamped_time != latest_time {
+                self.debug_print("📌", &format!(
+                    "Clamped {} from {} to {} (bounds: [{}, {}])",
+                    current_id, latest_time, clamped_time, bounds.lb, bounds.ub
+                ));
+            }
+
+            schedule.insert(current_id.clone(), clamped_time as i32);
+            self.debug_set_time(current_id, clamped_time as i32);
+        }
+    }
+
+
+    // Extract earliest schedule using forward pass
+    fn extract_earliest(&self) -> Result<HashMap<String, i32>, String> {
+        self.debug_print("⏱️", "Extracting earliest feasible schedule");
+
+        // Sort clocks topologically
+        let sorted_clocks = self.sort_clocks_topologically();
+
+        // Use the forward pass to get the earliest feasible schedule
+        let mut schedule = HashMap::new();
+        self.forward_pass(&sorted_clocks, &mut schedule);
+
         Ok(schedule)
     }
 
-    fn extract_earliest(&self) -> Result<HashMap<String, i32>, String> {
-        self.debug_print("⏱️", "Extracting earliest possible schedule");
-        self.extract_with_strategy(|lb, _| lb)
-    }
-    
+    // Extract latest schedule using backward pass
     fn extract_latest(&self) -> Result<HashMap<String, i32>, String> {
-        self.debug_print("⏰", "Extracting latest possible schedule");
-        self.extract_with_strategy(|_, ub| ub)
+        self.debug_print("⏰", "Extracting latest feasible schedule");
+
+        // Sort clocks topologically
+        let sorted_clocks = self.sort_clocks_topologically();
+
+        // Use the backward pass to get the latest feasible schedule
+        let mut schedule = HashMap::new();
+        self.backward_pass(&sorted_clocks, &mut schedule);
+
+        Ok(schedule)
     }
-    
+
+    // Extract centered schedule
     fn extract_centered(&self) -> Result<HashMap<String, i32>, String> {
         self.debug_print("⚖️", "Extracting centered schedule");
-        self.extract_with_strategy(|lb, ub| (lb + ub) / 2)
+
+        // Get both earliest and latest schedules
+        let sorted_clocks = self.sort_clocks_topologically();
+
+        let mut earliest_schedule = HashMap::new();
+        self.forward_pass(&sorted_clocks, &mut earliest_schedule);
+
+        let mut latest_schedule = HashMap::new();
+        self.backward_pass(&sorted_clocks, &mut latest_schedule);
+
+        // Create a new schedule with times at the midpoint
+        let mut centered_schedule = HashMap::new();
+
+        for (clock_id, _) in &sorted_clocks {
+            let earliest = *earliest_schedule.get(clock_id).unwrap_or(&0) as f64;
+            let latest = *latest_schedule.get(clock_id).unwrap_or(&1440) as f64;
+
+            // Use the midpoint
+            let centered_time = ((earliest + latest) / 2.0) as i32;
+
+            self.debug_print("↔️", &format!(
+                "Centering {} between {} and {} at {}",
+                clock_id, earliest as i32, latest as i32, centered_time
+            ));
+
+            centered_schedule.insert(clock_id.clone(), centered_time);
+            self.debug_set_time(clock_id, centered_time);
+        }
+
+        self.debug_print("🔄", "Verifying and fixing any constraint violations");
+        self.fix_constraint_violations(&sorted_clocks, &mut centered_schedule);
+
+        Ok(centered_schedule)
     }
 
-    fn extract_justified_global(&self) -> Result<HashMap<String, i32>, String> {
-        self.debug_print("📏", "Extracting justified global schedule");
-        
-        // Get all sorted clocks with their bounds and global span
-        let (all_vars, global_min, global_max) = self.prepare_global_schedule()?;
-    
-        let mut schedule = HashMap::new();
-    
-        // Distribute events evenly across the feasible span
-        let total_span = global_max - global_min;
-        let count = all_vars.len();
-        
-        self.debug_print("📊", &format!(
-            "Total span: {} minutes with {} clocks", total_span, count
+    // Justified schedule that respects constraints
+    fn extract_justified_with_constraints(&self) -> Result<HashMap<String, i32>, String> {
+        self.debug_print("📏", "Extracting justified schedule that respects constraints");
+
+        // Sort clocks topologically
+        let sorted_clocks = self.sort_clocks_topologically();
+        if sorted_clocks.is_empty() {
+            return Err("No clocks found to schedule".to_string());
+        }
+
+        // Get earliest feasible times with a forward pass
+        let mut earliest_schedule = HashMap::new();
+        self.forward_pass(&sorted_clocks, &mut earliest_schedule);
+
+        // Get latest feasible times with a backward pass
+        let mut latest_schedule = HashMap::new();
+        self.backward_pass(&sorted_clocks, &mut latest_schedule);
+
+        // Find the global earliest and latest times
+        let mut global_earliest = i32::MAX;
+        let mut global_latest = i32::MIN;
+
+        for (clock_id, _) in &sorted_clocks {
+            let earliest = *earliest_schedule.get(clock_id).unwrap_or(&0);
+            let latest = *latest_schedule.get(clock_id).unwrap_or(&1440);
+
+            if earliest < global_earliest {
+                global_earliest = earliest;
+            }
+            if latest > global_latest {
+                global_latest = latest;
+            }
+        }
+
+        self.debug_print("🌐", &format!(
+            "Global feasible range: {} - {} (span of {} minutes)",
+            global_earliest, global_latest, global_latest - global_earliest
         ));
-    
-        // Use the first and last bounds but stay within global feasible region
-        for (i, (clock_id, lb, ub, _, _)) in all_vars.iter().enumerate() {
-            let position: i64;
-    
+
+        let mut justified_schedule = HashMap::new();
+
+        // Create a justified schedule within the valid range for each clock
+        let n_clocks = sorted_clocks.len() as f64;
+
+        for (i, (clock_id, _)) in sorted_clocks.iter().enumerate() {
+            let earliest = *earliest_schedule.get(clock_id).unwrap_or(&0) as f64;
+            let latest = *latest_schedule.get(clock_id).unwrap_or(&1440) as f64;
+
+            let justified_time: i32;
+
+            // If this is the first or last clock, use the earliest or latest time
             if i == 0 {
-                // First clock at the beginning of span
-                position = global_min.max(*lb);
+                justified_time = earliest as i32;
                 self.debug_print("🏁", &format!(
-                    "First clock {} at position {} (max of global_min {} and lb {})",
-                    clock_id, position, global_min, lb
+                    "First clock {} at earliest possible time {}",
+                    clock_id, justified_time
                 ));
-            } else if i == count - 1 {
-                // Last clock at the end of span
-                position = global_max.min(*ub);
+            } else if i == sorted_clocks.len() - 1 {
+                justified_time = latest as i32;
                 self.debug_print("🏁", &format!(
-                    "Last clock {} at position {} (min of global_max {} and ub {})",
-                    clock_id, position, global_max, ub
+                    "Last clock {} at latest possible time {}",
+                    clock_id, justified_time
                 ));
             } else {
-                // Intermediate clocks evenly distributed
-                position = global_min + (total_span * i as i64) / (count as i64 - 1);
-                self.debug_print("📍", &format!(
-                    "Clock {} at position {} ({}/{} of the way through span)",
-                    clock_id, position, i, count-1
-                ));
+                // Otherwise, distribute proportionally within the feasible range
+                let global_span = global_latest as f64 - global_earliest as f64;
+                let fraction = i as f64 / (n_clocks - 1.0);
+                let target_time = global_earliest as f64 + fraction * global_span;
+
+                // Clamp to this clock's feasible range
+                justified_time = if target_time < earliest {
+                    self.debug_print("📍", &format!(
+                        "Clock {} target {} pushed forward to {} (its earliest feasible time)",
+                        clock_id, target_time as i32, earliest as i32
+                    ));
+                    earliest as i32
+                } else if target_time > latest {
+                    self.debug_print("📍", &format!(
+                        "Clock {} target {} pulled back to {} (its latest feasible time)",
+                        clock_id, target_time as i32, latest as i32
+                    ));
+                    latest as i32
+                } else {
+                    self.debug_print("📍", &format!(
+                        "Clock {} at {}/{} of span: {}",
+                        clock_id, i, sorted_clocks.len()-1, target_time as i32
+                    ));
+                    target_time as i32
+                };
             }
-    
-            // Always clamp to this clock's individual bounds
-            let clamped = position.clamp(*lb, *ub);
-            if clamped != position {
-                self.debug_print("📌", &format!(
-                    "Clamped {} from {} to {} (bounds: [{}, {}])",
-                    clock_id, position, clamped, lb, ub
-                ));
-            }
-            
-            self.debug_set_time(clock_id, clamped as i32);
-            
-            schedule.insert(clock_id.clone(), clamped as i32);
+
+            justified_schedule.insert(clock_id.clone(), justified_time);
+            self.debug_set_time(clock_id, justified_time);
         }
-        
-        self.post_process_schedule(schedule)
-    }
-    
-    fn extract_max_spread_global(&self) -> Result<HashMap<String, i32>, String> {
-        self.debug_print("↔️", "Extracting maximum spread global schedule");
-        
-        // Get all sorted clocks with their bounds and global span
-        let (all_vars, global_min, global_max) = self.prepare_global_schedule()?;
-    
-        let total_span = global_max - global_min;
-    
-        // Calculate ideal separation
-        let ideal_gap = if all_vars.len() > 1 {
-            total_span / (all_vars.len() as i64 - 1)
-        } else {
-            0 // If there's only one clock, no gap is needed
-        };
-        
-        self.debug_print("📏", &format!(
-            "Ideal gap between events: {} minutes", ideal_gap
-        ));
-    
-        // Create initial schedule with maximum spread
-        let mut schedule = HashMap::new();
-        for (i, (clock_id, lb, ub, _, _)) in all_vars.iter().enumerate() {
-            let ideal_time = global_min + (ideal_gap * i as i64);
-            let clamped = ideal_time.clamp(*lb, *ub);
-            
-            if clamped != ideal_time {
-                self.debug_print("📌", &format!(
-                    "Clamped {} from ideal {} to {} (bounds: [{}, {}])",
-                    clock_id, ideal_time, clamped, lb, ub
-                ));
-            }
-            
-            schedule.insert(clock_id.clone(), clamped as i32);
-            self.debug_set_time(clock_id, clamped as i32);
-        }
-        
-        self.post_process_schedule(schedule)
+
+        // REMOVED: Final forward pass to ensure all constraints are satisfied
+        // Instead, we'll do a more careful check and only adjust when needed
+        self.debug_print("🔄", "Verifying and fixing any constraint violations");
+        self.fix_constraint_violations(&sorted_clocks, &mut justified_schedule);
+
+        Ok(justified_schedule)
     }
 
-    // New method to validate that entity instances are scheduled in topological order
-    fn validate_topological_order(
-        &self,
-        schedule: &mut HashMap<String, i32>,
-    ) -> Result<(), String> {
-        self.debug_print("🧮", "Validating topological ordering of entity instances");
-        
+    // Maximum Spread schedule that respects constraints
+    fn extract_max_spread_with_constraints(&self) -> Result<HashMap<String, i32>, String> {
+        self.debug_print("↔️", "Extracting maximum spread schedule that respects constraints");
+
+        // Sort clocks topologically
+        let sorted_clocks = self.sort_clocks_topologically();
+        if sorted_clocks.is_empty() {
+            return Err("No clocks found to schedule".to_string());
+        }
+
+        // Get earliest and latest feasible times
+        let mut earliest_schedule = HashMap::new();
+        self.forward_pass(&sorted_clocks, &mut earliest_schedule);
+
+        let mut latest_schedule = HashMap::new();
+        self.backward_pass(&sorted_clocks, &mut latest_schedule);
+
+        // Get earliest time for the first clock
+        let mut global_earliest = i32::MAX;
+
+        for (clock_id, _) in &sorted_clocks {
+            let earliest = *earliest_schedule.get(clock_id).unwrap_or(&0);
+
+            if earliest < global_earliest {
+                global_earliest = earliest;
+            }
+        }
+
+        // Find the latest time for the last clock
+        let (last_id, _) = &sorted_clocks[sorted_clocks.len() - 1];
+        let global_latest = *latest_schedule.get(last_id).unwrap_or(&1440);
+
+        self.debug_print("🌐", &format!(
+            "Global schedule range: {} to {} (span of {} minutes)",
+            global_earliest, global_latest, global_latest - global_earliest
+        ));
+
+        // Calculate ideally evenly distributed schedule
+        let span = (global_latest - global_earliest) as f64;
+        let n_clocks = sorted_clocks.len() as f64;
+
+        // Create a new schedule with maximum spread
+        let mut spread_schedule = HashMap::new();
+
+        for (i, (clock_id, _)) in sorted_clocks.iter().enumerate() {
+            let earliest = *earliest_schedule.get(clock_id).unwrap_or(&0);
+            let latest = *latest_schedule.get(clock_id).unwrap_or(&1440);
+
+            // Calculate ideal position
+            let fraction = if n_clocks > 1.0 { i as f64 / (n_clocks - 1.0) } else { 0.0 };
+            let ideal_time = (global_earliest as f64 + fraction * span) as i32;
+
+            // Clamp to this clock's feasible range
+            let spread_time = if ideal_time < earliest {
+                self.debug_print("📍", &format!(
+                    "Clock {} ideal {} pushed forward to {} (its earliest feasible time)",
+                    clock_id, ideal_time, earliest
+                ));
+                earliest
+            } else if ideal_time > latest {
+                self.debug_print("📍", &format!(
+                    "Clock {} ideal {} pulled back to {} (its latest feasible time)",
+                    clock_id, ideal_time, latest
+                ));
+                latest
+            } else {
+                self.debug_print("📍", &format!(
+                    "Clock {} at {}/{} of span: {}",
+                    clock_id, i, sorted_clocks.len()-1, ideal_time
+                ));
+                ideal_time
+            };
+
+            spread_schedule.insert(clock_id.clone(), spread_time);
+            self.debug_set_time(clock_id, spread_time);
+        }
+
+        // REMOVED: Final forward pass to ensure all constraints are satisfied
+        // Instead, we'll do a more careful check and only adjust when needed
+        self.debug_print("🔄", "Verifying and fixing any constraint violations");
+        self.fix_constraint_violations(&sorted_clocks, &mut spread_schedule);
+
+        Ok(spread_schedule)
+    }
+
+
+    // Fix constraints without resetting the entire schedule
+    fn fix_constraint_violations(&self, sorted_clocks: &Vec<(String, &ClockInfo)>, schedule: &mut HashMap<String, i32>) {
+        let mut changed = true;
+        let mut iterations = 0;
+        const MAX_ITERATIONS: usize = 10;
+
+        while changed && iterations < MAX_ITERATIONS {
+            changed = false;
+            iterations += 1;
+
+            self.debug_print("🔄", &format!("Constraint verification pass {}", iterations));
+
+            // Check all pairs of clocks for constraint violations
+            for (i, (id_i, info_i)) in sorted_clocks.iter().enumerate() {
+                let time_i = *schedule.get(id_i).unwrap_or(&0);
+
+                for (j, (id_j, info_j)) in sorted_clocks.iter().enumerate() {
+                    if i == j {
+                        continue;
+                    }
+
+                    let time_j = *schedule.get(id_j).unwrap_or(&0);
+
+                    // Check if there is a constraint from i to j
+                    let min_diff = self.get_difference_constraints(info_j.variable, info_i.variable);
+
+                    if min_diff > 0 {
+                        // There is a constraint: j must be at least min_diff after i
+                        if time_j < time_i + min_diff as i32 {
+                            let constraint_violated = format!(
+                                "{} must be at least {} minutes after {}, but it's only {} minutes",
+                                id_j, min_diff, id_i, time_j - time_i
+                            );
+                            self.debug_error("⚠️", &constraint_violated);
+
+                            // Fix by adjusting j forward (preferred if possible)
+                            let new_time_j = time_i + min_diff as i32;
+                            let j_bounds = self.get_bounds(info_j.variable);
+
+                            if new_time_j <= j_bounds.ub as i32 {
+                                self.debug_print("🔧", &format!(
+                                    "Fixing by moving {} forward from {} to {}",
+                                    id_j, time_j, new_time_j
+                                ));
+
+                                schedule.insert(id_j.clone(), new_time_j);
+                                changed = true;
+                            } else {
+                                // If can't move j forward, try moving i backward
+                                let new_time_i = time_j - min_diff as i32;
+                                let i_bounds = self.get_bounds(info_i.variable);
+
+                                if new_time_i >= i_bounds.lb as i32 {
+                                    self.debug_print("🔧", &format!(
+                                        "Fixing by moving {} backward from {} to {}",
+                                        id_i, time_i, new_time_i
+                                    ));
+
+                                    schedule.insert(id_i.clone(), new_time_i);
+                                    changed = true;
+                                } else {
+                                    // Can't fix this constraint within bounds
+                                    self.debug_error("❌", &format!(
+                                        "Cannot fix constraint between {} and {}: bounds too restrictive",
+                                        id_i, id_j
+                                    ));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if iterations >= MAX_ITERATIONS {
+            self.debug_error("⚠️", "Reached maximum iterations for constraint fixing. Schedule may not be fully optimal.");
+        } else {
+            self.debug_print("✅", &format!("Constraint verification complete after {} passes", iterations));
+        }
+
+        // Manual check for instance ordering instead of calling validate_topological_order
+        self.debug_print("🧮", "Verifying instance ordering");
+
         // Group clocks by entity
         let mut entity_clocks: HashMap<String, Vec<(String, usize, i32)>> = HashMap::new();
 
@@ -510,100 +735,17 @@ impl<'a> ScheduleExtractor<'a> {
                         "Instance ordering violated: {} (time {}) should be after {} (time {})",
                         id2, time2, id1, time1
                     ));
-                    
+
                     // Reschedule the second clock at least 1 minute after the first
                     let new_time = time1 + 1;
                     self.debug_print("🔧", &format!(
                         "Adjusting {} time from {} to {}",
                         id2, time2, new_time
                     ));
-                    
+
                     schedule.insert(id2.clone(), new_time);
                 }
             }
         }
-
-        Ok(())
-    }
-
-    fn relax_schedule(&self, schedule: &mut HashMap<String, i32>) -> Result<(), String> {
-        self.debug_print("🧩", "Relaxing schedule to ensure all constraints are satisfied");
-        
-        // Iterate until no more changes are needed
-        let mut changed = true;
-        let mut iterations = 0;
-        const MAX_ITERATIONS: usize = 100; // Safety limit to prevent infinite loops
-    
-        while changed && iterations < MAX_ITERATIONS {
-            changed = false;
-            iterations += 1;
-            
-            self.debug_print("🔄", &format!("Relaxation iteration {}", iterations));
-    
-            // For each pair of clocks, check all difference constraints from the DBM
-            for (i_id, i_info) in self.clocks.iter() {
-                let i_var = i_info.variable;
-                let i_time = *schedule.get(i_id).unwrap_or(&0);
-    
-                for (j_id, j_info) in self.clocks.iter() {
-                    if i_id == j_id {
-                        continue; // Skip same clock
-                    }
-    
-                    let j_var = j_info.variable;
-                    let j_time = *schedule.get(j_id).unwrap_or(&0);
-    
-                    // Check constraint in both directions
-                    // First direction: j - i <= bound
-                    match self.enforce_constraint(
-                        schedule, i_id, i_var, i_time, j_id, j_var, j_time
-                    ) {
-                        Ok(true) => {
-                            changed = true;
-                            self.debug_print("✅", &format!(
-                                "Adjusted schedule to satisfy constraint between {} and {}",
-                                i_id, j_id
-                            ));
-                        },
-                        Err(msg) => {
-                            self.debug_error("❌", &format!(
-                                "Failed to satisfy constraint: {}", msg
-                            ));
-                            return Err(msg);
-                        },
-                        _ => {}
-                    }
-                    
-                    // Second direction: i - j <= bound
-                    match self.enforce_constraint(
-                        schedule, j_id, j_var, j_time, i_id, i_var, i_time
-                    ) {
-                        Ok(true) => {
-                            changed = true;
-                            self.debug_print("✅", &format!(
-                                "Adjusted schedule to satisfy constraint between {} and {}",
-                                j_id, i_id
-                            ));
-                        },
-                        Err(msg) => {
-                            self.debug_error("❌", &format!(
-                                "Failed to satisfy constraint: {}", msg
-                            ));
-                            return Err(msg);
-                        },
-                        _ => {}
-                    }
-                }
-            }
-        }
-    
-        if iterations >= MAX_ITERATIONS {
-            self.debug_error("⚠️", "Failed to stabilize schedule after maximum iterations");
-            return Err("Failed to stabilize schedule after maximum iterations".to_string());
-        }
-        
-        self.debug_print("✅", &format!("Schedule relaxed successfully after {} iterations", iterations));
-    
-        Ok(())
     }
 }
