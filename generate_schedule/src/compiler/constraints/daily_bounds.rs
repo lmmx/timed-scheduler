@@ -1,6 +1,6 @@
 use crate::compiler::debugging::debug_print;
 use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
-use clock_zones::Constraint;
+use clock_zones::{Constraint, Zone};
 
 pub fn apply_daily_bounds(compiler: &mut TimeConstraintCompiler) -> Result<(), String> {
     // Convert time to minutes (0-1440 for a 24-hour day)

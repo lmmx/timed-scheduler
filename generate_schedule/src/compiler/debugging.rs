@@ -1,6 +1,6 @@
 use crate::compiler::constraints::entity::apply_test_constraint;
 use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
-use clock_zones::{Bound, Clock, Constraint, Dbm, Variable};
+use clock_zones::{Bound, Clock, Constraint, Dbm, Variable, Zone};
 use colored::*;
 use std::collections::HashMap;
 
@@ -102,11 +102,7 @@ pub fn diagnose_infeasibility<B: clock_zones::Bound<Constant = i32>>(
         return;
     }
 
-    debug_print(
-        compiler,
-        "🔎",
-       "Running diagnosis to find problematic constraints"),
-    ;
+    debug_print(compiler, "🔎", "Running diagnosis to find problematic constraints");
 
     // Try with just daily bounds
     let mut test_zone = Dbm::<B>::new_zero(compiler.next_clock_index);

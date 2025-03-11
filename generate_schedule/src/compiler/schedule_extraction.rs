@@ -1,4 +1,5 @@
 use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
+use clock_zones::Zone;
 use std::collections::HashMap;
 
 // Extract a concrete schedule from the zone

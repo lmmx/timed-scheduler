@@ -1,15 +1,12 @@
 use clock_zones::{Dbm, Zone};
+use colored::*;
 use std::collections::{HashMap, HashSet};
 use std::env;
 
 use crate::compiler::clock_info::ClockInfo;
-use crate::compiler::constraints::{
-    daily_bounds::apply_daily_bounds, entity::apply_entity_constraints,
-    frequency::apply_frequency_constraints,
-};
-use crate::compiler::debugging::diagnose_infeasibility;
-use crate::compiler::reference_resolution::resolve_reference;
-use crate::compiler::schedule_extraction::{extract_schedule, format_schedule};
+use crate::compiler::constraints::{daily_bounds, entity, frequency};
+use crate::compiler::debugging;
+use crate::compiler::schedule_extraction;
 use crate::extractor::schedule_extractor::ScheduleStrategy;
 use crate::types::entity::Entity;
 
@@ -72,8 +69,7 @@ impl TimeConstraintCompiler {
         for (entity_name, entity) in &self.entities {
             let instances = entity.frequency.get_instances_per_day();
             if self.debug {
-                use crate::compiler::debugging::debug_print;
-                debug_print(
+                debugging::debug_print(
                     self,
                     "📝",
                     &format!(
@@ -98,8 +94,7 @@ impl TimeConstraintCompiler {
                 );
 
                 if self.debug {
-                    use crate::compiler::debugging::debug_print;
-                    debug_print(
+                    debugging::debug_print(
                         self,
                         "➕",
                         &format!(
@@ -116,50 +111,48 @@ impl TimeConstraintCompiler {
     }
 
     pub fn compile(&mut self) -> Result<&Dbm<i64>, String> {
-        use crate::compiler::debugging::{debug_error, debug_print, debug_zone_state};
-
-        debug_print(self, "🚀", "Starting compilation process");
+        debugging::debug_print(self, "🚀", "Starting compilation process");
 
         // 1. Create clock variables for all entity instances
-        debug_print(self, "⏰", "Step 1: Allocating clock variables");
+        debugging::debug_print(self, "⏰", "Step 1: Allocating clock variables");
         self.allocate_clocks()?;
-        debug_zone_state(self);
+        debugging::debug_zone_state(self);
 
         // 2. Set daily bounds (0-24 hours in minutes)
-        debug_print(self, "📅", "Step 2: Setting daily bounds (0-24 hours)");
-        apply_daily_bounds(self)?;
-        debug_zone_state(self);
+        debugging::debug_print(self, "📅", "Step 2: Setting daily bounds (0-24 hours)");
+        daily_bounds::apply_daily_bounds(self)?;
+        debugging::debug_zone_state(self);
 
         // 3. Apply frequency-based constraints (spacing between occurrences)
-        debug_print(self, "🔄", "Step 3: Applying frequency-based constraints");
-        apply_frequency_constraints(self)?;
-        debug_zone_state(self);
+        debugging::debug_print(self, "🔄", "Step 3: Applying frequency-based constraints");
+        frequency::apply_frequency_constraints(self)?;
+        debugging::debug_zone_state(self);
 
         // 4. Apply entity-specific constraints
-        debug_print(self, "🔗", "Step 4: Applying entity-specific constraints");
-        apply_entity_constraints(self)?;
-        debug_zone_state(self);
+        debugging::debug_print(self, "🔗", "Step 4: Applying entity-specific constraints");
+        entity::apply_entity_constraints(self)?;
+        debugging::debug_zone_state(self);
 
         // 5. Check feasibility
         if self.zone.is_empty() {
-            debug_error(
+            debugging::debug_error(
                 self,
                 "❌",
                 "Schedule is not feasible with the given constraints",
             );
 
             // Try to identify which constraint caused infeasibility
-            debug_error(
+            debugging::debug_error(
                 self,
                 "🔍",
-               "Attempting to identify problematic constraints..."),
-            ;
-            diagnose_infeasibility::<i32>(self);
+                "Attempting to identify problematic constraints...",
+            );
+            debugging::diagnose_infeasibility::<i32>(self);
 
             return Err("Schedule is not feasible with the given constraints".to_string());
         }
 
-        debug_print(
+        debugging::debug_print(
             self,
             "✅",
             "Schedule is feasible! Zone has valid solutions.",
@@ -180,14 +173,12 @@ impl TimeConstraintCompiler {
     where
         F: Fn() -> clock_zones::Constraint<i64>,
     {
-        use crate::compiler::debugging::{debug_error, debug_print};
-
         // Create a test zone to see if adding this constraint would make it infeasible
         let mut test_zone = self.zone.clone();
         test_zone.add_constraint(constraint_builder());
 
         if test_zone.is_empty() {
-            debug_error(
+            debugging::debug_error(
                 self,
                 "⚠️",
                 &format!(
@@ -197,7 +188,7 @@ impl TimeConstraintCompiler {
             );
             false
         } else {
-            debug_print(self, "✅", &format!("Adding constraint: {}", description));
+            debugging::debug_print(self, "✅", &format!("Adding constraint: {}", description));
             self.zone.add_constraint(constraint_builder());
             true
         }
@@ -208,7 +199,6 @@ impl TimeConstraintCompiler {
         strategy: ScheduleStrategy,
     ) -> Result<HashMap<String, i32>, String> {
         use crate::extractor::schedule_extractor::ScheduleExtractor;
-        use colored::*;
 
         // Make sure zone is properly compiled and feasible
         if self.zone.is_empty() {
@@ -257,5 +247,15 @@ impl TimeConstraintCompiler {
         }
 
         Ok(schedule)
+    }
+
+    // Delegate to schedule_extraction module
+    pub fn extract_schedule(&self) -> Result<HashMap<String, i32>, String> {
+        schedule_extraction::extract_schedule(self)
+    }
+
+    // Delegate to schedule_extraction module
+    pub fn format_schedule(&self, schedule: &HashMap<String, i32>) -> String {
+        schedule_extraction::format_schedule(self, schedule)
     }
 }

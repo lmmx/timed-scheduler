@@ -4,7 +4,7 @@ use crate::compiler::reference_resolution::resolve_reference;
 use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
 use crate::types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
 use crate::types::time_unit::TimeUnit::Hour;
-use clock_zones::{Constraint, Variable};
+use clock_zones::{Constraint, Variable, Zone};
 
 pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result<(), String> {
     // First, collect all constraint operations we need to perform

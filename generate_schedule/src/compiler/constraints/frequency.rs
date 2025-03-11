@@ -1,6 +1,6 @@
 use crate::compiler::debugging::debug_print;
 use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
-use clock_zones::{Constraint, Variable};
+use clock_zones::{Constraint, Variable, Zone};
 use std::collections::HashMap;
 
 pub fn apply_frequency_constraints(compiler: &mut TimeConstraintCompiler) -> Result<(), String> {
