@@ -1,4 +1,4 @@
-use clock_zones::{Bound, Dbm, Zone};
+use clock_zones::{AnyClock, Bound, Dbm, Zone};
 use std::collections::HashMap;
 
 use crate::compiler::clock_info::ClockInfo;
@@ -12,6 +12,12 @@ pub enum ScheduleStrategy {
     MaximumSpread,
 }
 
+/// A small struct to hold lower/upper bounds for a clock.
+struct Bounds {
+    lb: i64,
+    ub: i64,
+}
+
 pub struct ScheduleExtractor<'a> {
     pub zone: &'a Dbm<i64>,
     pub clocks: &'a HashMap<String, ClockInfo>,
@@ -20,6 +26,12 @@ pub struct ScheduleExtractor<'a> {
 impl<'a> ScheduleExtractor<'a> {
     pub fn new(zone: &'a Dbm<i64>, clocks: &'a HashMap<String, ClockInfo>) -> Self {
         Self { zone, clocks }
+    }
+
+    fn get_bounds(&self, variable: impl AnyClock) -> Bounds {
+        let lb = self.zone.get_lower_bound(variable).unwrap_or(0);
+        let ub = self.zone.get_upper_bound(variable).unwrap_or(1440);
+        Bounds { lb, ub }
     }
 
     pub fn extract_schedule(
@@ -66,8 +78,8 @@ impl<'a> ScheduleExtractor<'a> {
     fn extract_earliest(&self) -> Result<HashMap<String, i32>, String> {
         let mut schedule = HashMap::new();
         for (clock_id, info) in self.clocks.iter() {
-            let lb = self.zone.get_lower_bound(info.variable).unwrap_or(0);
-            schedule.insert(clock_id.clone(), lb as i32);
+            let bounds = self.get_bounds(info.variable);
+            schedule.insert(clock_id.clone(), bounds.lb as i32);
         }
         Ok(schedule)
     }
@@ -75,8 +87,8 @@ impl<'a> ScheduleExtractor<'a> {
     fn extract_latest(&self) -> Result<HashMap<String, i32>, String> {
         let mut schedule = HashMap::new();
         for (clock_id, info) in self.clocks.iter() {
-            let ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440);
-            schedule.insert(clock_id.clone(), ub as i32);
+            let bounds = self.get_bounds(info.variable);
+            schedule.insert(clock_id.clone(), bounds.ub as i32);
         }
         Ok(schedule)
     }
@@ -84,9 +96,8 @@ impl<'a> ScheduleExtractor<'a> {
     fn extract_centered(&self) -> Result<HashMap<String, i32>, String> {
         let mut schedule = HashMap::new();
         for (clock_id, info) in self.clocks.iter() {
-            let lb = self.zone.get_lower_bound(info.variable).unwrap_or(0);
-            let ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440);
-            let mid = (lb + ub) / 2;
+            let bounds = self.get_bounds(info.variable);
+            let mid = (bounds.lb + bounds.ub) / 2;
             schedule.insert(clock_id.clone(), mid as i32);
         }
         Ok(schedule)
@@ -96,13 +107,12 @@ impl<'a> ScheduleExtractor<'a> {
         // 1) Collect all clocks with their bounds
         let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
         for (clock_id, info) in &*self.clocks {
-            let lb = self.zone.get_lower_bound(info.variable).unwrap_or(0);
-            let ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440);
+            let bounds = self.get_bounds(info.variable);
             // Also store the entity name and instance number for topological ordering
             all_vars.push((
                 clock_id.clone(),
-                lb,
-                ub,
+                bounds.lb,
+                bounds.ub,
                 info.instance,
                 info.entity_name.clone(),
             ));
@@ -187,13 +197,12 @@ impl<'a> ScheduleExtractor<'a> {
         // 1) Collect all clocks with their bounds
         let mut all_vars: Vec<(String, i64, i64, usize, String)> = Vec::new();
         for (clock_id, info) in &*self.clocks {
-            let lb = self.zone.get_lower_bound(info.variable).unwrap_or(0);
-            let ub = self.zone.get_upper_bound(info.variable).unwrap_or(1440);
+            let bounds = self.get_bounds(info.variable);
             // Also store the entity name and instance number for topological ordering
             all_vars.push((
                 clock_id.clone(),
-                lb,
-                ub,
+                bounds.lb,
+                bounds.ub,
                 info.instance,
                 info.entity_name.clone(),
             ));
