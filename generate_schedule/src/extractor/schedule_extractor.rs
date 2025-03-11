@@ -104,7 +104,7 @@ impl<'a> ScheduleExtractor<'a> {
         }
         Ok(schedule)
     }
-    
+
     pub fn extract_schedule(
         &self,
         strategy: ScheduleStrategy,
@@ -113,7 +113,7 @@ impl<'a> ScheduleExtractor<'a> {
         if self.zone.is_empty() {
             return Err("Zone is empty; no schedule is possible.".to_string());
         }
-
+    
         // Dispatch to appropriate strategy
         let mut schedule = match strategy {
             ScheduleStrategy::Earliest => self.extract_earliest(),
@@ -122,10 +122,10 @@ impl<'a> ScheduleExtractor<'a> {
             ScheduleStrategy::Justified => self.extract_justified_global(),
             ScheduleStrategy::MaximumSpread => self.extract_max_spread_global(),
         }?;
-
+    
         // Final validation to ensure all times are within bounds
         self.validate_schedule(&mut schedule)?;
-
+    
         Ok(schedule)
     }
 
@@ -177,6 +177,10 @@ impl<'a> ScheduleExtractor<'a> {
     fn prepare_global_schedule(&self) -> Result<(Vec<(String, i64, i64, usize, String)>, i64, i64), String> {
         // Collect all clocks with their bounds
         let all_vars = self.sort_clocks_topologically();
+        
+        if all_vars.is_empty() {
+            return Err("No clocks found to schedule".to_string());
+        }
     
         // Find the feasible span for the entire schedule
         let global_min = all_vars.iter().map(|(_, lb, _, _, _)| *lb).max().unwrap_or(0);
@@ -184,7 +188,10 @@ impl<'a> ScheduleExtractor<'a> {
     
         // Safety check: ensure we have a valid span
         if global_min >= global_max {
-            return Err("No valid global span available".to_string());
+            return Err(format!(
+                "No valid global span available: min={}, max={}", 
+                global_min, global_max
+            ));
         }
     
         Ok((all_vars, global_min, global_max))
@@ -211,24 +218,19 @@ impl<'a> ScheduleExtractor<'a> {
     }
 
     fn extract_justified_global(&self) -> Result<HashMap<String, i32>, String> {
-        let result = self.prepare_global_schedule();
-        
-        // Check if we got a valid span
-        let (all_vars, global_min, global_max) = match result {
-            Ok(data) => data,
-            Err(_) => return self.extract_centered(), // Fall back to centered approach
-        };
+        // Get all sorted clocks with their bounds and global span
+        let (all_vars, global_min, global_max) = self.prepare_global_schedule()?;
     
         let mut schedule = HashMap::new();
     
         // Distribute events evenly across the feasible span
         let total_span = global_max - global_min;
         let count = all_vars.len();
-
+    
         // Use the first and last bounds but stay within global feasible region
         for (i, (clock_id, lb, ub, _, _)) in all_vars.iter().enumerate() {
             let position: i64;
-
+    
             if i == 0 {
                 // First clock at the beginning of span
                 position = global_min.max(*lb);
@@ -239,28 +241,28 @@ impl<'a> ScheduleExtractor<'a> {
                 // Intermediate clocks evenly distributed
                 position = global_min + (total_span * i as i64) / (count as i64 - 1);
             }
-
+    
             // Always clamp to this clock's individual bounds
             let clamped = position.clamp(*lb, *ub);
             schedule.insert(clock_id.clone(), clamped as i32);
         }
+        
         self.post_process_schedule(schedule)
     }
-
+    
     fn extract_max_spread_global(&self) -> Result<HashMap<String, i32>, String> {
-        let result = self.prepare_global_schedule();
-        
-        // Check if we got a valid span
-        let (all_vars, global_min, global_max) = match result {
-            Ok(data) => data,
-            Err(_) => return self.extract_centered(), // Fall back to centered approach
-        };
+        // Get all sorted clocks with their bounds and global span
+        let (all_vars, global_min, global_max) = self.prepare_global_schedule()?;
     
         let total_span = global_max - global_min;
-
+    
         // Calculate ideal separation
-        let ideal_gap = total_span / (all_vars.len() as i64 - 1);
-
+        let ideal_gap = if all_vars.len() > 1 {
+            total_span / (all_vars.len() as i64 - 1)
+        } else {
+            0 // If there's only one clock, no gap is needed
+        };
+    
         // Create initial schedule with maximum spread
         let mut schedule = HashMap::new();
         for (i, (clock_id, lb, ub, _, _)) in all_vars.iter().enumerate() {
@@ -268,6 +270,7 @@ impl<'a> ScheduleExtractor<'a> {
             let clamped = ideal_time.clamp(*lb, *ub);
             schedule.insert(clock_id.clone(), clamped as i32);
         }
+        
         self.post_process_schedule(schedule)
     }
 
