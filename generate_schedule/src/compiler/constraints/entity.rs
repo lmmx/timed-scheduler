@@ -9,7 +9,7 @@ use clock_zones::{Constraint, Variable, Zone};
 pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result<(), String> {
     // First, collect all constraint operations we need to perform
     let mut constraint_operations = Vec::new();
-    
+
     // Build our entity clock map up front
     let mut entity_clocks_map = std::collections::HashMap::new();
     for (entity_name, _) in &compiler.entities {
@@ -101,17 +101,17 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                         constraint.time_unit.to_minutes(constraint.time_value) as i64;
 
                     // Check for potential conflicts that would create cycles
-                    if constraint.constraint_type == ConstraintType::Before && 
+                    if constraint.constraint_type == ConstraintType::Before &&
                        reference_str == "food" && entity_name == "Antepsin" {
                         // Special case for Antepsin before food constraint
                         if compiler.debug {
                             debug_print(
                                 compiler,
-                                "ℹ️", 
+                                "ℹ️",
                                 &format!("Special handling for {} before {} constraint", entity_name, reference_str)
                             );
                         }
-                        
+
                         // We'll handle this differently to avoid cycles
                         // Just log it and move on - we'll handle it in a second pass
                         constraint_operations.push((
@@ -120,7 +120,7 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                             0,
                             format!("Special constraint: {} before {}", entity_name, reference_str),
                         ));
-                    } else if constraint.constraint_type == ConstraintType::After && 
+                    } else if constraint.constraint_type == ConstraintType::After &&
                               reference_str == "food" && entity_name == "Antepsin" {
                         // Special case for Antepsin after food constraint - skip for now
                         debug_print(
@@ -141,10 +141,10 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                                 if entity_var == reference_var {
                                     continue;
                                 }
-                                
+
                                 let entity_clock_name = compiler.find_clock_name(entity_var).unwrap_or_default();
                                 let reference_clock_name = compiler.find_clock_name(reference_var).unwrap_or_default();
-                                
+
                                 match constraint.constraint_type {
                                     ConstraintType::Before => {
                                         // Entity must be before reference
@@ -254,7 +254,7 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                             if entity_var == reference_var {
                                 continue;
                             }
-                            
+
                             // Get clock names for better logs
                             let entity_name =
                                 compiler.find_clock_name(entity_var).unwrap_or_default();
@@ -293,7 +293,7 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                     .filter(|c| c.entity_name == "Antepsin")
                     .map(|c| c.variable)
                     .collect();
-                
+
                 let food_clocks: Vec<Variable> = compiler
                     .clocks
                     .values()
@@ -306,12 +306,12 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                     })
                     .map(|c| c.variable)
                     .collect();
-                
+
                 for &antepsin_var in &antepsin_clocks {
                     for &food_var in &food_clocks {
                         let antepsin_name = compiler.find_clock_name(antepsin_var).unwrap_or_default();
                         let food_name = compiler.find_clock_name(food_var).unwrap_or_default();
-                        
+
                         compiler.add_constraint_safely(
                             || Constraint::new_diff_ge(food_var, antepsin_var, 60),  // 1 hour = 60 minutes
                             &format!("{} must be ≥1h0m before {}", antepsin_name, food_name),
@@ -321,7 +321,7 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
             }
             continue;
         }
-        
+
         compiler.add_constraint_safely(
             || Constraint::new_diff_ge(to_var, from_var, time_minutes),
             &description,

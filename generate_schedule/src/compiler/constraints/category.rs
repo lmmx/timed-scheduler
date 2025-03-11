@@ -19,7 +19,7 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
     // First, group all entity clocks by their category
     for (entity_name, entity) in &compiler.entities {
         let category = entity.category.clone();
-        
+
         // Get all clocks for this entity
         let entity_clocks: Vec<Variable> = compiler
             .clocks
@@ -43,17 +43,17 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
         for constraint in category_constraints {
             let from_category = &constraint.from_category;
             let to_category = &constraint.to_category;
-            
+
             // Get clocks for both categories
             let from_clocks = category_entity_clocks.get(from_category);
             let to_clocks = category_entity_clocks.get(to_category);
-            
+
             match (from_clocks, to_clocks) {
                 (Some(from_vars), Some(to_vars)) => {
                     // Calculate time in minutes
-                    let time_in_minutes = 
+                    let time_in_minutes =
                         constraint.time_unit.to_minutes(constraint.time_value) as i64;
-                    
+
                     match &constraint.constraint_type {
                         ConstraintType::Before => {
                             // Apply before constraints: from_category entities must be before to_category entities
@@ -63,10 +63,10 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                                     if from_var == to_var {
                                         continue;
                                     }
-                                    
+
                                     let from_name = compiler.find_clock_name(from_var).unwrap_or_default();
                                     let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
-                                    
+
                                     constraint_operations.push((
                                         from_var,
                                         to_var,
@@ -92,10 +92,10 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                                     if from_var == to_var {
                                         continue;
                                     }
-                                    
+
                                     let from_name = compiler.find_clock_name(from_var).unwrap_or_default();
                                     let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
-                                    
+
                                     constraint_operations.push((
                                         to_var,
                                         from_var,
@@ -129,7 +129,7 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                                     ),
                                 );
                             }
-                            
+
                             // We don't directly add ApartFrom as a constraint here
                             // because it's a disjunctive constraint that needs special handling
                             // This would need additional logic in the DBM system
@@ -183,7 +183,7 @@ pub fn apply_test_category_constraint(
     // Group all entity clocks by their category
     for (entity_name, entity) in &compiler.entities {
         let category = entity.category.clone();
-        
+
         // Get all clocks for this entity
         let entity_clocks: Vec<Variable> = compiler
             .clocks
@@ -204,7 +204,7 @@ pub fn apply_test_category_constraint(
         Some(clocks) => clocks,
         None => return Err(format!("Category not found: {}", constraint.from_category)),
     };
-    
+
     let to_clocks = match category_entity_clocks.get(&constraint.to_category) {
         Some(clocks) => clocks,
         None => return Err(format!("Category not found: {}", constraint.to_category)),
@@ -212,7 +212,7 @@ pub fn apply_test_category_constraint(
 
     // Calculate time in minutes
     let time_in_minutes = constraint.time_unit.to_minutes(constraint.time_value) as i64;
-    
+
     match &constraint.constraint_type {
         ConstraintType::Before => {
             // Apply before constraints

@@ -122,17 +122,17 @@ impl CategoryConstraint {
             time_unit,
         }
     }
-    
+
     // Parse from a string format like "Category1 >= 2h before Category2"
     pub fn parse(expr: &str) -> Result<Self, String> {
         // Clean up the input string
         let expr = expr.trim();
-        
+
         // Regular expressions for different constraint patterns
         let cat_before_re = Regex::new(r"^([^\s]+)\s+≥(\d+)([hm])\s+before\s+([^\s]+)$").unwrap();
         let cat_after_re = Regex::new(r"^([^\s]+)\s+≥(\d+)([hm])\s+after\s+([^\s]+)$").unwrap();
         let cat_apart_from_re = Regex::new(r"^([^\s]+)\s+≥(\d+)([hm])\s+apart\s+from\s+([^\s]+)$").unwrap();
-        
+
         if let Some(caps) = cat_before_re.captures(expr) {
             let from_category = caps[1].trim().to_string();
             let time_value: u32 = caps[2]
@@ -140,7 +140,7 @@ impl CategoryConstraint {
                 .map_err(|_| "Invalid time value".to_string())?;
             let time_unit = TimeUnit::from_str(&caps[3])?;
             let to_category = caps[4].trim().to_string();
-            
+
             Ok(CategoryConstraint {
                 from_category,
                 to_category,
@@ -155,7 +155,7 @@ impl CategoryConstraint {
                 .map_err(|_| "Invalid time value".to_string())?;
             let time_unit = TimeUnit::from_str(&caps[3])?;
             let to_category = caps[4].trim().to_string();
-            
+
             Ok(CategoryConstraint {
                 from_category,
                 to_category,
@@ -170,7 +170,7 @@ impl CategoryConstraint {
                 .map_err(|_| "Invalid time value".to_string())?;
             let time_unit = TimeUnit::from_str(&caps[3])?;
             let to_category = caps[4].trim().to_string();
-            
+
             Ok(CategoryConstraint {
                 from_category,
                 to_category,
