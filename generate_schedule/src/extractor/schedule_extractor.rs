@@ -183,8 +183,8 @@ impl<'a> ScheduleExtractor<'a> {
         }
     
         // Find the feasible span for the entire schedule
-        let global_min = all_vars.iter().map(|(_, lb, _, _, _)| *lb).max().unwrap_or(0);
-        let global_max = all_vars.iter().map(|(_, _, ub, _, _)| *ub).min().unwrap_or(1440);
+        let global_min = 0;
+        let global_max = 1440;
     
         // Safety check: ensure we have a valid span
         if global_min >= global_max {
