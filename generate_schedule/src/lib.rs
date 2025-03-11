@@ -8,7 +8,7 @@ mod types;
 
 // Re-export the main types and functionality
 pub use compiler::clock_info::ClockInfo;
-pub use compiler::compiler::TimeConstraintCompiler;
+pub use compiler::TimeConstraintCompiler;
 pub use extractor::schedule_extractor::ScheduleStrategy;
 pub use parser::table_parser::parse_from_table;
 pub use types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
