@@ -417,8 +417,8 @@ impl<'a> ScheduleExtractor<'a> {
             self.debug_set_time(clock_id, centered_time);
         }
         
-        // Final forward pass to ensure all constraints are satisfied
-        self.forward_pass(&sorted_clocks, &mut centered_schedule);
+        self.debug_print("🔄", "Verifying and fixing any constraint violations");
+        self.fix_constraint_violations(&sorted_clocks, &mut centered_schedule);
         
         Ok(centered_schedule)
     }
