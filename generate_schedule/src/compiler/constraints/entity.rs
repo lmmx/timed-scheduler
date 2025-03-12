@@ -352,8 +352,6 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                         compiler.find_clock_name(reference_var).unwrap_or_default();
 
                     // Define both constraints for the disjunction
-                    let before_constraint =
-                        || Constraint::new_diff_ge(reference_var, entity_var, before_minutes);
                     let before_desc = format!(
                         "{} must be ≥{}h{}m before {}",
                         entity_clock_name,
@@ -362,8 +360,6 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                         reference_clock_name
                     );
 
-                    let after_constraint =
-                        || Constraint::new_diff_ge(entity_var, reference_var, after_minutes);
                     let after_desc = format!(
                         "{} must be ≥{}h{}m after {}",
                         entity_clock_name,
@@ -372,13 +368,6 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                         reference_clock_name
                     );
 
-                    // Try the disjunctive constraint
-                    // compiler.try_disjunction(
-                    //     before_constraint,
-                    //     &before_desc,
-                    //     after_constraint,
-                    //     &after_desc,
-                    // );
                     compiler.disjunctive_ops.push(DisjunctiveOp {
                         var1: reference_var,
                         var2: entity_var,

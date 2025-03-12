@@ -266,8 +266,6 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                         let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
 
                         // Define both constraints for the disjunction
-                        let before_constraint_func =
-                            || Constraint::new_diff_ge(to_var, from_var, before_minutes);
                         let before_desc = format!(
                             "{} (category {}) must be ≥{}h{}m before {} (category {})",
                             from_name,
@@ -278,8 +276,6 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                             to_category
                         );
 
-                        let after_constraint_func =
-                            || Constraint::new_diff_ge(from_var, to_var, after_minutes);
                         let after_desc = format!(
                             "{} (category {}) must be ≥{}h{}m after {} (category {})",
                             from_name,
@@ -317,7 +313,7 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
     // Apply the regular constraints we collected
     for (from_var, to_var, time_minutes, description) in constraint_operations {
         compiler.add_constraint_safely(
-            || Constraint::new_diff_ge(to_var, from_var, time_minutes),
+            || -> Constraint<i64> { Constraint::new_diff_ge(to_var, from_var, time_minutes) },
             &description,
         );
     }
@@ -384,8 +380,9 @@ pub fn handle_category_apart_from(compiler: &mut TimeConstraintCompiler) -> Resu
 
                         // Define two disjunctive constraints:
                         // 1. From category is before To category
-                        let from_before_to =
-                            || Constraint::new_diff_ge(to_var, from_var, time_in_minutes);
+                        let from_before_to = || -> Constraint<i64> {
+                            Constraint::new_diff_ge(to_var, from_var, time_in_minutes)
+                        };
                         let from_before_to_desc = format!(
                             "{} (category {}) must be ≥{}h{}m before {} (category {})",
                             from_name,
@@ -397,8 +394,9 @@ pub fn handle_category_apart_from(compiler: &mut TimeConstraintCompiler) -> Resu
                         );
 
                         // 2. From category is after To category
-                        let to_before_from =
-                            || Constraint::new_diff_ge(from_var, to_var, time_in_minutes);
+                        let to_before_from = || -> Constraint<i64> {
+                            Constraint::new_diff_ge(from_var, to_var, time_in_minutes)
+                        };
                         let to_before_from_desc = format!(
                             "{} (category {}) must be ≥{}h{}m after {} (category {})",
                             from_name,
