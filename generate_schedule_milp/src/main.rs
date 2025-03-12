@@ -3,7 +3,10 @@ mod parse;
 mod cli;
 
 use crate::cli::{ScheduleStrategy, parse_config_from_args};
-use crate::domain::{ClockVar, ConstraintType, ConstraintRef, c2str};
+use crate::domain::{
+    ClockVar, ConstraintType, ConstraintRef, c2str,
+    WindowSpec, // needed to match on WindowSpec
+};
 use crate::parse::parse_from_table;
 
 use good_lp::{
@@ -82,7 +85,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "null",
             "2x daily",
             "[]",
-            "[\"08:00\", \"12:00-13:00\", \"19:00\"]",
+            "[\"08:00\", \"12:00-13:00\", \"19:00\"]", // has 2 anchors & 1 range
             "null",
         ],
     ];
@@ -96,7 +99,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .insert(e.name.clone());
     }
 
-    // Build clock variables, clamped to the day window
+    // Build clock variables, each clamped to the day window
     let mut builder = variables!();
     let mut clock_map = HashMap::new();
 
@@ -110,11 +113,14 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .min(config.day_start_minutes as f64)
                     .max(config.day_end_minutes as f64)
                 );
-            clock_map.insert(cname, ClockVar {
-                entity_name: e.name.clone(),
-                instance: i+1,
-                var
-            });
+            clock_map.insert(
+                cname,
+                ClockVar {
+                    entity_name: e.name.clone(),
+                    instance: i+1,
+                    var,
+                },
+            );
         }
     }
 
@@ -135,7 +141,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         list.sort_by_key(|c| c.instance);
     }
 
-    // Resolve references by name or category
+    // Helper to resolve references by name or category
     let resolve_ref = |rstr: &str| -> Vec<ClockVar> {
         let mut out = Vec::new();
         for e in &entities {
@@ -160,12 +166,11 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     let big_m = 1440.0;
 
-    // Apply existing "apart/before/after" logic
+    // Apply "apart/before/after" logic
     for e in &entities {
-        let eclocks = if let Some(list) = entity_clocks.get(&e.name) {
-            list
-        } else {
-            continue;
+        let eclocks = match entity_clocks.get(&e.name) {
+            Some(list) => list,
+            None => continue,
         };
 
         let mut ba_map: HashMap<String, (Option<f64>, Option<f64>)> = HashMap::new();
@@ -198,7 +203,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // a) apply "apart" to consecutive
+        // (a) "apart" for consecutive
         for tv in apart_intervals {
             for w in eclocks.windows(2) {
                 let c1 = &w[0];
@@ -208,20 +213,20 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // b) apply "apart_from" => big-M
+        // (b) "apart_from" => big-M
         for (tv, refname) in apart_from_list {
             let rvars = resolve_ref(&refname);
             for c_e in eclocks {
                 for c_r in &rvars {
                     let b = builder.add(variable().binary());
                     let d1 = format!("(ApartFrom) {} - {} >= {} - bigM*(1-b)",
-                        c2str(c_r), c2str(c_e), tv);
+                        c2str(c_r), c2str(&c_e), tv);
                     add_dbg(&d1,
                         constraint!( c_r.var - c_e.var >= tv - big_m*(1.0 - b)),
                         &mut constraints
                     );
                     let d2 = format!("(ApartFrom) {} - {} >= {} - bigM*b",
-                        c2str(c_e), c2str(c_r), tv);
+                        c2str(&c_e), c2str(c_r), tv);
                     add_dbg(&d2,
                         constraint!( c_e.var - c_r.var >= tv - big_m*b),
                         &mut constraints
@@ -230,22 +235,23 @@ fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // c) merges of "before & after"
+        // (c) merges of "before & after"
         for (rname,(maybe_b, maybe_a)) in ba_map {
             let rvars = resolve_ref(&rname);
             match (maybe_b, maybe_a) {
                 (Some(bv), Some(av)) => {
+                    // single big-M disjunction => "≥bv before" OR "≥av after"
                     for c_e in eclocks {
                         for c_r in &rvars {
                             let b = builder.add(variable().binary());
                             let d1 = format!("(Before|After) {} - {} >= {} - M*(1-b)",
-                                c2str(c_r), c2str(c_e), bv);
+                                c2str(c_r), c2str(&c_e), bv);
                             add_dbg(&d1,
                                 constraint!( c_r.var - c_e.var >= bv - big_m*(1.0 - b)),
                                 &mut constraints
                             );
                             let d2 = format!("(Before|After) {} - {} >= {} - M*b",
-                                c2str(c_e), c2str(c_r), av);
+                                c2str(&c_e), c2str(c_r), av);
                             add_dbg(&d2,
                                 constraint!( c_e.var - c_r.var >= av - big_m*b),
                                 &mut constraints
@@ -274,12 +280,67 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // Objective
+    // Now apply the "use windows" logic.
+    // For demonstration, we make every clock variable for an entity fit
+    // in AT LEAST ONE of the entity's windows, if any exist. If `windows` is empty,
+    // we do nothing. 
+    for e in &entities {
+        if let Some(eclocks) = entity_clocks.get(&e.name) {
+            if !e.windows.is_empty() {
+                println!("DEBUG => {} has {} windows: {:?}", e.name, e.windows.len(), e.windows);
+
+                for cv in eclocks {
+                    // We'll create one binary var for each window, so we can do a big-M
+                    // approach that says "If b_{i,w} = 1, then the var is in that window."
+                    let mut w_bvars = Vec::new();
+
+                    for (w_idx, wspec) in e.windows.iter().enumerate() {
+                        let bvar = builder.add(variable().binary());
+                        w_bvars.push(bvar);
+
+                        match wspec {
+                            WindowSpec::Anchor(a) => {
+                                // If b=1 => cv.var == a
+                                // We'll do the big-M technique:
+                                //   cv.var - a <= bigM*(1 - b)
+                                //   a - cv.var <= bigM*(1 - b)
+                                let d1 = format!("(Anchor) {} - {} <= M*(1-b_{})",
+                                    c2str(cv), a, w_idx);
+                                let d2 = format!("(Anchor) {} - {} <= M*(1-b_{})",
+                                    a, c2str(cv), w_idx);
+                                add_dbg(&d1, constraint!( cv.var - (*a as f64) <= big_m * (1.0 - bvar) ), &mut constraints);
+                                add_dbg(&d2, constraint!( (*a as f64) - cv.var <= big_m * (1.0 - bvar) ), &mut constraints);
+                            },
+                            WindowSpec::Range(start, end) => {
+                                // If b=1 => cv.var in [start..end]
+                                // i.e. cv.var >= start, cv.var <= end
+                                // We'll encode via big-M in case b=0:
+                                //   cv.var >= start  - bigM*(1-b)
+                                //   cv.var <= end    + bigM*(1-b)
+                                let d_start = format!("(RangeStart) {} >= {} - M*(1-b_{})",
+                                    c2str(cv), start, w_idx);
+                                let d_end   = format!("(RangeEnd) {} <= {} + M*(1-b_{})",
+                                    c2str(cv), end, w_idx);
+                                add_dbg(&d_start, constraint!( cv.var >= (*start as f64) - big_m * (1.0 - bvar) ), &mut constraints);
+                                add_dbg(&d_end,   constraint!( cv.var <= (*end   as f64) + big_m * (1.0 - bvar) ), &mut constraints);
+                            },
+                        }
+                    }
+
+                    // Must choose at least one window -> sum(bvars) >= 1 
+                    let sum_bvars = w_bvars.iter().fold(Expression::from(0), |acc, &b| acc + b);
+                    let d_choose = format!("(WindowPick) {} must pick >=1 window", c2str(cv));
+                    add_dbg(&d_choose, constraint!( sum_bvars >= 1 ), &mut constraints);
+                }
+            }
+        }
+    }
+
+    // Objective: sum of times (Earliest or Latest)
     let mut sum_expr = Expression::from(0);
     for cv in clock_map.values() {
         sum_expr += cv.var;
     }
-
     let mut problem = match config.strategy {
         ScheduleStrategy::Earliest => builder.minimise(sum_expr).using(default_solver),
         ScheduleStrategy::Latest   => builder.maximise(sum_expr).using(default_solver),
@@ -289,7 +350,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         problem = problem.with(c);
     }
 
-    // Solve
     let sol = match problem.solve() {
         Ok(s) => s,
         Err(e) => {
@@ -304,12 +364,12 @@ fn main() -> Result<(), Box<dyn Error>> {
         let val = sol.value(cv.var);
         schedule.push((cid.clone(), cv.entity_name.clone(), val));
     }
-    schedule.sort_by(|a,b| a.2.partial_cmp(&b.2).unwrap());
+    schedule.sort_by(|a, b| a.2.partial_cmp(&b.2).unwrap());
 
     println!("--- Final schedule ({:?}) ---", config.strategy);
     for (cid, ename, t) in schedule {
-        let hh = (t/60.0).floor() as i32;
-        let mm = (t%60.0).round() as i32;
+        let hh = (t / 60.0).floor() as i32;
+        let mm = (t % 60.0).round() as i32;
         println!("  {cid} ({ename}): {hh:02}:{mm:02}");
     }
 
