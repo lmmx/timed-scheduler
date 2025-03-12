@@ -31,25 +31,18 @@ pub fn parse_config_from_args() -> ScheduleConfig {
     let mut config = ScheduleConfig::default();
 
     // 1) Day window
-    if let Some(start_arg) = args.iter().find(|a| a.starts_with("--start=")) {
-        if let Some(time_str) = start_arg.strip_prefix("--start=") {
-            if let Some((h_str, m_str)) = time_str.split_once(':') {
-                if let (Ok(h), Ok(m)) = (h_str.parse::<i32>(), m_str.parse::<i32>()) {
-                    config.day_start_minutes = h * 60 + m;
-                }
-            }
-        }
-    }
+    let parse_time_arg = |prefix: &str, minutes: &mut i32| {
+        args.iter()
+            .find_map(|arg| arg.strip_prefix(prefix))
+            .and_then(|time_str| time_str.split_once(':'))
+            .and_then(|(h_str, m_str)| 
+                h_str.parse::<i32>().ok().zip(m_str.parse::<i32>().ok())
+                    .map(|(h, m)| *minutes = h * 60 + m)
+            );
+    };
 
-    if let Some(end_arg) = args.iter().find(|a| a.starts_with("--end=")) {
-        if let Some(time_str) = end_arg.strip_prefix("--end=") {
-            if let Some((h_str, m_str)) = time_str.split_once(':') {
-                if let (Ok(h), Ok(m)) = (h_str.parse::<i32>(), m_str.parse::<i32>()) {
-                    config.day_end_minutes = h * 60 + m;
-                }
-            }
-        }
-    }
+    parse_time_arg("--start=", &mut config.day_start_minutes);
+    parse_time_arg("--end=", &mut config.day_end_minutes);
 
     // 2) Strategy: if user typed "latest" anywhere, we switch from Earliest to Latest
     // e.g. "cargo run latest" or "cargo run -- latest"
