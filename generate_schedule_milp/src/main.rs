@@ -213,13 +213,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                 for c_r in &rvars {
                     let b = builder.add(variable().binary());
                     let d1 = format!("(ApartFrom) {} - {} >= {} - bigM*(1-b)",
-                        c2str(c_r), c2str(&c_e), tv);
+                        c2str(c_r), c2str(c_e), tv);
                     add_dbg(&d1,
                         constraint!( c_r.var - c_e.var >= tv - big_m*(1.0 - b)),
                         &mut constraints
                     );
                     let d2 = format!("(ApartFrom) {} - {} >= {} - bigM*b",
-                        c2str(&c_e), c2str(c_r), tv);
+                        c2str(c_e), c2str(c_r), tv);
                     add_dbg(&d2,
                         constraint!( c_e.var - c_r.var >= tv - big_m*b),
                         &mut constraints
@@ -238,13 +238,13 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for c_r in &rvars {
                             let b = builder.add(variable().binary());
                             let d1= format!("(Before|After) {} - {} >= {} - M*(1-b)",
-                                c2str(c_r), c2str(&c_e), bv);
+                                c2str(c_r), c2str(c_e), bv);
                             add_dbg(&d1,
                                 constraint!( c_r.var - c_e.var >= bv - big_m*(1.0 - b)),
                                 &mut constraints
                             );
                             let d2= format!("(Before|After) {} - {} >= {} - M*b",
-                                c2str(&c_e), c2str(c_r), av);
+                                c2str(c_e), c2str(c_r), av);
                             add_dbg(&d2,
                                 constraint!( c_e.var - c_r.var >= av - big_m*b),
                                 &mut constraints
@@ -256,7 +256,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // only "before"
                     for c_e in eclocks {
                         for c_r in &rvars {
-                            let d= format!("(Before) {} - {} >= {}", c2str(c_r), c2str(&c_e), bv);
+                            let d= format!("(Before) {} - {} >= {}", c2str(c_r), c2str(c_e), bv);
                             add_dbg(&d, constraint!( c_r.var - c_e.var >= bv ), &mut constraints);
                         }
                     }
@@ -265,7 +265,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // only "after"
                     for c_e in eclocks {
                         for c_r in &rvars {
-                            let d= format!("(After) {} - {} >= {}", c2str(&c_e), c2str(c_r), av);
+                            let d= format!("(After) {} - {} >= {}", c2str(c_e), c2str(c_r), av);
                             add_dbg(&d, constraint!( c_e.var - c_r.var >= av ), &mut constraints);
                         }
                     }
@@ -277,8 +277,8 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // 3) Objective: if strategy == Latest => max, else => min
     let mut sum_expr = Expression::from(0);
-    for (_cid, cv) in &clock_map {
-        sum_expr = sum_expr + cv.var;
+    for cv in clock_map.values() {
+        sum_expr += cv.var;
     }
 
     let mut problem = match config.strategy {
