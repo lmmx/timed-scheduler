@@ -4,11 +4,12 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 
 use crate::compiler::clock_info::ClockInfo;
-use crate::compiler::constraints::{daily_bounds, entity, frequency};
+use crate::compiler::constraints::{daily_bounds, entity, frequency, category};
 use crate::compiler::debugging;
 use crate::compiler::schedule_extraction;
 use crate::extractor::schedule_extractor::ScheduleStrategy;
 use crate::types::entity::Entity;
+use crate::types::constraints::CategoryConstraint;
 
 pub struct TimeConstraintCompiler {
     // Maps entity names to their data
@@ -23,6 +24,8 @@ pub struct TimeConstraintCompiler {
     pub next_clock_index: usize,
     // Debug mode flag
     pub debug: bool,
+    // Optional category-level constraints
+    pub category_constraints: Option<Vec<CategoryConstraint>>,
 }
 
 impl TimeConstraintCompiler {
@@ -60,7 +63,13 @@ impl TimeConstraintCompiler {
             zone,
             next_clock_index: 0,
             debug,
+            category_constraints: None,
         }
+    }
+
+    // Add a setter method for category constraints
+    pub fn set_category_constraints(&mut self, constraints: Vec<CategoryConstraint>) {
+        self.category_constraints = Some(constraints);
     }
 
     fn allocate_clocks(&mut self) -> Result<(), String> {
@@ -133,7 +142,12 @@ impl TimeConstraintCompiler {
         entity::apply_entity_constraints(self)?;
         debugging::debug_zone_state(self);
 
-        // 5. Check feasibility
+        // 5. Apply category-level constraints
+        debugging::debug_print(self, "🔗", "Step 5: Applying category-level constraints");
+        category::apply_category_constraints(self)?;
+        debugging::debug_zone_state(self);
+
+        // 6. Check feasibility
         if self.zone.is_empty() {
             debugging::debug_error(
                 self,
