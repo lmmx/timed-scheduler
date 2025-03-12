@@ -1,10 +1,12 @@
 use crate::compiler::clock_info::ClockInfo;
 use crate::compiler::debugging::{debug_error, debug_print};
 use crate::compiler::reference_resolution::resolve_reference;
-use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
+use crate::compiler::time_constraint_compiler::{DisjunctiveOp, TimeConstraintCompiler};
 use crate::types::constraints::{ConstraintExpression, ConstraintReference, ConstraintType};
+use crate::types::time_unit::TimeUnit;
 use crate::types::time_unit::TimeUnit::Hour;
 use clock_zones::{Constraint, Variable, Zone};
+use std::collections::HashMap;
 
 pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result<(), String> {
     // First, collect all constraint operations we need to perform
@@ -371,12 +373,22 @@ pub fn apply_entity_constraints(compiler: &mut TimeConstraintCompiler) -> Result
                     );
 
                     // Try the disjunctive constraint
-                    compiler.try_disjunction(
-                        before_constraint,
-                        &before_desc,
-                        after_constraint,
-                        &after_desc,
-                    );
+                    // compiler.try_disjunction(
+                    //     before_constraint,
+                    //     &before_desc,
+                    //     after_constraint,
+                    //     &after_desc,
+                    // );
+                    compiler.disjunctive_ops.push(DisjunctiveOp {
+                        var1: reference_var,
+                        var2: entity_var,
+                        time1: before_minutes,
+                        desc1: before_desc.clone(),
+                        var3: entity_var,
+                        var4: reference_var,
+                        time2: after_minutes,
+                        desc2: after_desc.clone(),
+                    });
                 }
             }
         }

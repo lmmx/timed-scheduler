@@ -1,4 +1,4 @@
-use clock_zones::{Dbm, Zone};
+use clock_zones::{Bound, Constraint, Dbm, Variable, Zone};
 use colored::*;
 use std::collections::{HashMap, HashSet};
 use std::env;
@@ -10,6 +10,17 @@ use crate::compiler::schedule_extraction;
 use crate::extractor::schedule_extractor::ScheduleStrategy;
 use crate::types::constraints::CategoryConstraint;
 use crate::types::entity::Entity;
+
+pub struct DisjunctiveOp {
+    pub var1: Variable,
+    pub var2: Variable,
+    pub time1: i64,
+    pub desc1: String,
+    pub var3: Variable,
+    pub var4: Variable,
+    pub time2: i64,
+    pub desc2: String,
+}
 
 pub struct TimeConstraintCompiler {
     // Maps entity names to their data
@@ -26,6 +37,8 @@ pub struct TimeConstraintCompiler {
     pub debug: bool,
     // Optional category-level constraints
     pub category_constraints: Option<Vec<CategoryConstraint>>,
+    // Disjunctive operations (OR conditions)
+    pub disjunctive_ops: Vec<DisjunctiveOp>,
 }
 
 impl TimeConstraintCompiler {
@@ -64,6 +77,20 @@ impl TimeConstraintCompiler {
             next_clock_index: 0,
             debug,
             category_constraints: None,
+            disjunctive_ops: Vec::new(),
+        }
+    }
+
+    // Add a method to apply all collected disjunctive operations
+    pub fn apply_disjunctive_constraints(&mut self) {
+        let ops = std::mem::take(&mut self.disjunctive_ops);
+        for op in ops {
+            self.try_disjunction(
+                || Constraint::new_diff_ge(op.var1, op.var2, op.time1),
+                &op.desc1,
+                || Constraint::new_diff_ge(op.var3, op.var4, op.time2),
+                &op.desc2,
+            );
         }
     }
 
@@ -145,6 +172,11 @@ impl TimeConstraintCompiler {
         // 5. Apply category-level constraints
         debugging::debug_print(self, "🔗", "Step 5: Applying category-level constraints");
         category::apply_category_constraints(self)?;
+        debugging::debug_zone_state(self);
+
+        // 5.5 Apply all collected disjunctive constraints
+        debugging::debug_print(self, "🔗", "Step 5.5: Applying disjunctive constraints");
+        self.apply_disjunctive_constraints();
         debugging::debug_zone_state(self);
 
         // 6. Check feasibility
@@ -272,116 +304,120 @@ impl TimeConstraintCompiler {
     pub fn format_schedule(&self, schedule: &HashMap<String, i32>) -> String {
         schedule_extraction::format_schedule(self, schedule)
     }
-}
 
-pub fn try_disjunction<F1, F2>(
-    &mut self,
-    constraint1_builder: F1,
-    constraint1_desc: &str,
-    constraint2_builder: F2,
-    constraint2_desc: &str,
-) -> bool
-where
-    F1: Fn() -> clock_zones::Constraint<i64>,
-    F2: Fn() -> clock_zones::Constraint<i64>,
-{
-    // Try first constraint
-    let mut test_zone1 = self.zone.clone();
-    test_zone1.add_constraint(constraint1_builder());
-    let first_feasible = !test_zone1.is_empty();
+    pub fn try_disjunction<F1, F2>(
+        &mut self,
+        constraint1_builder: F1,
+        constraint1_desc: &str,
+        constraint2_builder: F2,
+        constraint2_desc: &str,
+    ) -> bool
+    where
+        F1: Fn() -> clock_zones::Constraint<i64>,
+        F2: Fn() -> clock_zones::Constraint<i64>,
+    {
+        // Try first constraint
+        let mut test_zone1 = self.zone.clone();
+        test_zone1.add_constraint(constraint1_builder());
+        let first_feasible = !test_zone1.is_empty();
 
-    // Try second constraint
-    let mut test_zone2 = self.zone.clone();
-    test_zone2.add_constraint(constraint2_builder());
-    let second_feasible = !test_zone2.is_empty();
+        // Try second constraint
+        let mut test_zone2 = self.zone.clone();
+        test_zone2.add_constraint(constraint2_builder());
+        let second_feasible = !test_zone2.is_empty();
 
-    if !first_feasible && !second_feasible {
-        // Neither constraint works
-        debugging::debug_error(
-            self,
-            "⚠️",
-            &format!(
-                "Neither disjunctive constraint is feasible: {} OR {}",
-                constraint1_desc, constraint2_desc
-            ),
-        );
-        return false;
-    } else if first_feasible && !second_feasible {
-        // Only first constraint is feasible
-        debugging::debug_print(
-            self,
-            "✅",
-            &format!(
-                "Choosing first disjunctive constraint (second is infeasible): {}",
-                constraint1_desc
-            ),
-        );
-        self.zone.add_constraint(constraint1_builder());
-        return true;
-    } else if !first_feasible && second_feasible {
-        // Only second constraint is feasible
-        debugging::debug_print(
-            self,
-            "✅",
-            &format!(
-                "Choosing second disjunctive constraint (first is infeasible): {}",
-                constraint2_desc
-            ),
-        );
-        self.zone.add_constraint(constraint2_builder());
-        return true;
-    } else {
-        // Both constraints are feasible, choose the better one
-        // For this implementation, let's use a simple heuristic:
-        // Choose the constraint that results in a more balanced schedule
-
-        // For a balanced schedule, we'll use a simple metric: compute the sum of
-        // all shortest path differences between clocks after applying each constraint
-        let mut sum1 = 0;
-        let mut sum2 = 0;
-
-        for i in 0..self.next_clock_index {
-            for j in i + 1..self.next_clock_index {
-                let var_i = clock_zones::Clock::variable(i);
-                let var_j = clock_zones::Clock::variable(j);
-
-                if let Some(diff1) = test_zone1.shortest_path(var_i, var_j) {
-                    sum1 += diff1.abs();
-                }
-
-                if let Some(diff2) = test_zone2.shortest_path(var_i, var_j) {
-                    sum2 += diff2.abs();
-                }
-            }
-        }
-
-        // Choose the constraint that results in smaller total differences,
-        // which generally indicates a more balanced schedule
-        if sum1 <= sum2 {
+        if !first_feasible && !second_feasible {
+            // Neither constraint works
+            debugging::debug_error(
+                self,
+                "⚠️",
+                &format!(
+                    "Neither disjunctive constraint is feasible: {} OR {}",
+                    constraint1_desc, constraint2_desc
+                ),
+            );
+            return false;
+        } else if first_feasible && !second_feasible {
+            // Only first constraint is feasible
             debugging::debug_print(
                 self,
                 "✅",
                 &format!(
-                    "Both disjunctive constraints are feasible, choosing first based on schedule quality: {}",
+                    "Choosing first disjunctive constraint (second is infeasible): {}",
                     constraint1_desc
                 ),
             );
             self.zone.add_constraint(constraint1_builder());
-        } else {
+            return true;
+        } else if !first_feasible && second_feasible {
+            // Only second constraint is feasible
             debugging::debug_print(
                 self,
                 "✅",
                 &format!(
-                    "Both disjunctive constraints are feasible, choosing second based on schedule quality: {}",
+                    "Choosing second disjunctive constraint (first is infeasible): {}",
                     constraint2_desc
                 ),
             );
             self.zone.add_constraint(constraint2_builder());
+            return true;
+        } else {
+            // Both constraints are feasible, choose the better one
+            // For this implementation, let's use a simple heuristic:
+            // Choose the constraint that results in a more balanced schedule
+
+            // For a balanced schedule, we'll use a simple metric: compute the sum of
+            // all shortest path differences between clocks after applying each constraint
+            let mut sum1 = 0;
+            let mut sum2 = 0;
+
+            for i in 0..self.next_clock_index {
+                for j in i + 1..self.next_clock_index {
+                    let var_i = clock_zones::Clock::variable(i);
+                    let var_j = clock_zones::Clock::variable(j);
+
+                    let bound1 = test_zone1.get_bound(var_i, var_j);
+                    if !bound1.is_unbounded() {
+                        if let Some(constant) = bound1.constant() {
+                            sum1 += constant.abs();
+                        }
+                    }
+                    let bound2 = test_zone2.get_bound(var_i, var_j);
+                    if !bound2.is_unbounded() {
+                        if let Some(constant) = bound2.constant() {
+                            sum2 += constant.abs();
+                        }
+                    }
+                }
+            }
+
+            // Choose the constraint that results in smaller total differences,
+            // which generally indicates a more balanced schedule
+            if sum1 <= sum2 {
+                debugging::debug_print(
+                    self,
+                    "✅",
+                    &format!(
+                        "Both disjunctive constraints are feasible, choosing first based on schedule quality: {}",
+                        constraint1_desc
+                    ),
+                );
+                self.zone.add_constraint(constraint1_builder());
+            } else {
+                debugging::debug_print(
+                    self,
+                    "✅",
+                    &format!(
+                        "Both disjunctive constraints are feasible, choosing second based on schedule quality: {}",
+                        constraint2_desc
+                    ),
+                );
+                self.zone.add_constraint(constraint2_builder());
+            }
+            return true;
         }
-        return true;
     }
 }
-// Add this at the end of src/compiler/time_constraint_compiler.rs
 
 #[cfg(test)]
 mod tests {

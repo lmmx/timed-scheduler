@@ -1,5 +1,6 @@
 use crate::compiler::debugging::{debug_error, debug_print};
-use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
+use crate::compiler::time_constraint_compiler::{DisjunctiveOp, TimeConstraintCompiler};
+use crate::types::constraints::CategoryConstraint;
 use crate::types::constraints::ConstraintType;
 use clock_zones::{Constraint, Variable};
 use std::collections::HashMap;
@@ -289,13 +290,24 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                             to_category
                         );
 
-                        // Try the disjunctive constraint
-                        compiler.try_disjunction(
-                            before_constraint_func,
-                            &before_desc,
-                            after_constraint_func,
-                            &after_desc,
-                        );
+                        // // Try the disjunctive constraint
+                        // compiler.try_disjunction(
+                        //     before_constraint_func,
+                        //     &before_desc,
+                        //     after_constraint_func,
+                        //     &after_desc,
+                        // );
+
+                        compiler.disjunctive_ops.push(DisjunctiveOp {
+                            var1: reference_var,
+                            var2: entity_var,
+                            time1: before_minutes,
+                            desc1: before_desc.clone(),
+                            var3: entity_var,
+                            var4: reference_var,
+                            time2: after_minutes,
+                            desc2: after_desc.clone(),
+                        });
                     }
                 }
             }
