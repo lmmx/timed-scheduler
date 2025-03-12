@@ -1,21 +1,17 @@
+mod cli; // import the module with parse_config_from_args
+use crate::cli::{ScheduleStrategy, parse_config_from_args};
+
 use good_lp::{
     variables, variable, constraint, default_solver,
     SolverModel, Solution, Expression, Constraint
 };
-use regex::Regex;
 use std::collections::{HashMap, HashSet};
-use std::env;
 use std::error::Error;
+use regex::Regex;
 
 //--------------------------------------
 // Domain
 //--------------------------------------
-
-#[derive(Debug, Clone, Copy)]
-enum ScheduleStrategy {
-    Earliest,
-    Latest,
-}
 
 #[derive(Debug, Clone)]
 enum ConstraintType {
@@ -88,7 +84,10 @@ struct ClockVar {
 //--------------------------------------
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let strategy = pick_strategy_from_args();
+    // 1) Gather config from CLI (both day window + strategy)
+    let config = parse_config_from_args();
+    println!("Using day window: {}..{} (in minutes)", config.day_start_minutes, config.day_end_minutes);
+    println!("Strategy: {:?}", config.strategy);
 
     // EXACT table data snippet you provided:
     let table_data = vec![
@@ -164,7 +163,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             .insert(e.name.clone());
     }
 
-    // 1) Create variables
+    // 2) Build clock variables, clamped to [day_start_minutes..day_end_minutes]
     let mut builder = variables!();
     let mut clock_map = HashMap::new();
 
@@ -172,8 +171,14 @@ fn main() -> Result<(), Box<dyn Error>> {
         let count = e.frequency.instances_per_day();
         for i in 0..count {
             let cname = format!("{}_{}", e.name, i+1);
-            let var = builder.add(variable().integer().min(0).max(1440));
-            clock_map.insert(cname.clone(), ClockVar {
+            // Now clamp each clock variable to config.day_start_minutes..day_end_minutes
+            let var = builder
+                .add(variable()
+                    .integer()
+                    .min(config.day_start_minutes as f64)
+                    .max(config.day_end_minutes as f64)
+                );
+            clock_map.insert(cname, ClockVar {
                 entity_name: e.name.clone(),
                 instance: i+1,
                 var
@@ -340,16 +345,13 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
     }
 
-    // 3) objective
+    // 3) Objective: if strategy == Latest => max, else => min
     let mut sum_expr = Expression::from(0);
     for (_cid, cv) in &clock_map {
         sum_expr = sum_expr + cv.var;
     }
-    println!("DEBUG => objective is {}", match strategy {
-        ScheduleStrategy::Earliest => "minimize sum",
-        ScheduleStrategy::Latest   => "maximize sum",
-    });
-    let mut problem = match strategy {
+
+    let mut problem = match config.strategy {
         ScheduleStrategy::Earliest => builder.minimise(sum_expr).using(default_solver),
         ScheduleStrategy::Latest   => builder.maximise(sum_expr).using(default_solver),
     };
@@ -375,7 +377,8 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
     schedule.sort_by(|a,b| a.2.partial_cmp(&b.2).unwrap());
 
-    println!("--- Final schedule ({:?}) ---", strategy);
+    // Fix: Use config.strategy instead of undefined strategy
+    println!("--- Final schedule ({:?}) ---", config.strategy);
     for (cid, ename, t) in schedule {
         let hh = (t/60.0).floor() as i32;
         let mm = (t%60.0).round() as i32;
@@ -388,16 +391,6 @@ fn main() -> Result<(), Box<dyn Error>> {
 //--------------------------------------
 // parse, helper
 //--------------------------------------
-
-fn pick_strategy_from_args() -> ScheduleStrategy {
-    let args: Vec<String> = env::args().collect();
-    // e.g. cargo run earliest or cargo run latest
-    if args.iter().any(|a| a.to_lowercase()=="latest") {
-        ScheduleStrategy::Latest
-    } else {
-        ScheduleStrategy::Earliest
-    }
-}
 
 fn parse_from_table(rows: Vec<Vec<&str>>) -> Result<Vec<Entity>, String> {
     let re = Regex::new(r#""([^"]+)""#).unwrap();
