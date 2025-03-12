@@ -299,12 +299,12 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
                         // );
 
                         compiler.disjunctive_ops.push(DisjunctiveOp {
-                            var1: reference_var,
-                            var2: entity_var,
+                            var1: from_var,
+                            var2: to_var,
                             time1: before_minutes,
                             desc1: before_desc.clone(),
-                            var3: entity_var,
-                            var4: reference_var,
+                            var3: to_var,
+                            var4: from_var,
                             time2: after_minutes,
                             desc2: after_desc.clone(),
                         });
