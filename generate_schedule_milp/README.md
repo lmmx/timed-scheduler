@@ -1,167 +1,100 @@
-# Time Constraint Scheduling Library
+# Timed Scheduler
 
-This library provides a domain-specific language (DSL) for specifying time-based constraints and a compiler that generates feasible schedules based on those constraints.
+A small **mixed-integer linear programming (MILP)** approach to scheduling events (e.g. “medications” and “meals”) under various timing rules. It merges constraints like “≥6 h apart,” “≥1 h before [some category],” or “≥2 h after [some category]” into **big‐M disjunctions** when both apply to the same pair, ensuring the solver treats them as **OR** instead of **AND**. This avoids contradictory conditions and yields a feasible schedule if one exists.
 
-## Project Structure
+---
 
-The codebase is organized into modules:
+## Key Features
 
-```
-src/
-├── lib.rs               # Main library file with re-exports
-├── types/               # Core data types
-├── compiler/            # Schedule generation logic
-└── parser/              # Input format parsers
-```
+1. **Constraint Expressions**  
+   - **`≥Xh apart`**: Consecutive instances of the same entity are separated by at least X hours.  
+   - **`≥Xh before X` / `≥Xh after X`**: One entity must occur at least X hours before/after another.  
+   - **`≥Xh apart from X`**: Two different entities must be separated by at least X hours in either direction.
 
-# Schedule Strategy Command-Line Option Guide
+2. **Disjunctive “Before–After” Merge**  
+   - If an entity is told “≥1 h before SomeCategory” and also “≥2 h after SomeCategory,” the code automatically creates **one** big‐M constraint for “before OR after,” preventing the contradictory “≥1h before AND ≥2h after.”
 
-I've added the ability to select different scheduling strategies through command-line options. This
-allows you to easily experiment with different approaches to schedule extraction without modifying
-the code.
+3. **Earliest / Latest Objectives**  
+   - **Earliest**: Minimizes the sum of event start times, pushing them as early as constraints allow.  
+   - **Latest**: Maximizes that sum, pushing them as late as feasible.
 
-### Basic Usage
+4. **Debug Logging**  
+   - The code prints lines like `(Before|After) (food_var2) - (med_var1) >= 60 - M*(1-b)` so you can see each constraint in its raw form.
 
-To run the scheduler with a specific strategy:
+---
 
-```bash
-cargo run -- --strategy justified
-# Or using the short form
-cargo run -- -s justified
-```
+## Usage
 
-### Available Strategies
-
-The following strategies are available:
-
-1. **earliest** - Schedule all events at their earliest possible time
-2. **latest** - Schedule all events at their latest possible time
-3. **centered** - Schedule all events in the middle of their feasible range (default)
-4. **justified** - Distribute events evenly across the feasible time span
-5. **spread** (or **maximumspread**) - Maximize the spacing between events
-
-### Combining with Debug
-
-You can combine the strategy flag with the debug flag:
+### 1) Build & Run
 
 ```bash
-cargo run -- --strategy earliest --debug
+cargo run -- --strategy earliest
 ```
-
-### Getting Help
-
-To display usage information:
-
+or
 ```bash
-cargo run -- --help
-# Or
-cargo run -- -h
+cargo run -- --strategy latest
 ```
+The solver then prints each constraint and either finds a schedule or reports infeasibility.
 
-## Example Command Lines
+### 2) Example Table Data
 
-```bash
-# Use earliest strategy with debug output
-cargo run -- -s earliest -d
+The sample `main.rs` includes a small table describing entities, frequency, and constraints like `[\"≥6h apart\", \"≥1h before food\", \"≥2h after food\"]`. Each row corresponds to an entity with a daily frequency and a list of timing rules.
 
-# Use justified strategy
-cargo run -- --strategy justified
+### 3) Output
 
-# Use latest strategy with debug output
-cargo run -- --strategy latest --debug
+- Debug logs list constraints:  
+  ```
+  DEBUG => (Before|After) (food_var2) - (med_var1) >= 60 - M*(1-b)
+  ...
+  ```
+- Then a final schedule:  
+  ```
+  --- Final schedule (Earliest) ---
+    SomeMed_1 (SomeMed): 00:00
+    SomeFood_1 (SomeFood): 01:00
+    ...
+  ```
+This schedule is sorted by ascending start time.
 
-# Use spread strategy
-cargo run -- -s spread
-```
+---
 
-## Default Behavior
+## How It Works
 
-If no strategy is specified, the program will default to using the `Centered` strategy, which places
-each event in the middle of its feasible time range.
+1. **Parse the Table**  
+   Each entity (like “Medication A” or “Meal B”) is read with lines such as “≥Xh apart,” “≥Yh before category,” “≥Zh after category,” etc.
 
-## Error Handling
+2. **Clock Variables**  
+   Each instance per day (e.g., 3× daily => 3 clock variables) is an integer in `[0..1440]` minutes.
 
-- If an unknown strategy is specified, the program will warn you and default to the `Centered`
-  strategy
-- Suggestions to run with `--help` are provided when errors occur
-- If a strategy is specified without a value, it will default to `Centered`
+3. **Building Constraints**  
+   - **“Apart”** => consecutive instances are at least X hours apart.  
+   - **“Before & After”** => if both appear for the same pair, unify them into a single “≥X before OR ≥Y after” big‐M disjunction.  
+   - **“ApartFrom”** => similarly uses big‐M to require at least X hours in either direction.
 
-## Important Note
+4. **Objective**  
+   - “Earliest” => sum of all times is minimized, pushing events near 0:00 if unconstrained.  
+   - “Latest” => sum of all times is maximized, bunching events near 24:00 if possible.
 
-When using the strategy flag with debug output, you'll now see the schedule printed twice:
-1. First in the debug output after extraction (sorted by time)
-2. Then in the final formatted output (also sorted by time)
+5. **Solving**  
+   The code uses [good_lp](https://docs.rs/good_lp) with a default MILP solver (CBC). If constraints are contradictory, it prints “Infeasible.”
 
-This provides a consistent view of the schedule at different stages of the process.
+---
 
-## Key Components
+## Adapting or Extending
 
-### Types
+- **Add Time Windows**: Restrict mealtimes to 7 am–10 pm by forcing clock variables within `[420..1320]`.  
+- **Overnight Gaps**: If needed, add a daily constraint so the last meal is some hours before the next day’s first meal.  
+- **Heavier Objectives**: Instead of just earliest or latest, you can add separate penalty terms or incorporate other scheduling goals.
 
-- `Frequency`: Defines how often an entity occurs (daily, twice daily, etc.)
-- `Entity`: Represents an item to be scheduled with constraints
-- `TimeUnit`: Represents time units (minutes, hours)
-- `ConstraintExpression`: Represents timing constraints between entities
+---
 
-### Compiler
+## Troubleshooting
 
-- `TimeConstraintCompiler`: Converts DSL constraints into a time zone model
-- `ClockInfo`: Tracks information about clock variables
+- **Infeasible**: Means constraints logically contradict. Check the debug lines to see which sets of constraints might be clashing.  
+- **Bunching**: If you see multiple meds at 0:00 or 24:00 under “Earliest” or “Latest,” that’s normal unless you add constraints to spread them out further.
 
-### Parser
+---
 
-- `parse_from_table`: Parses entity definitions from a tabular format
+## License
 
-## Example Usage
-
-```rust
-use time_constraint_lib::{Entity, TimeConstraintCompiler, parse_from_table};
-
-fn main() -> Result<(), String> {
-    // Define entities in tabular format
-    let table_data = vec![
-        vec![
-            "Entity", "Category", "Unit", "Amount", "Split", "Frequency", "Constraints", "Note",
-        ],
-        vec![
-            "Medication A", "medicine", "mg", "10", "null", "2x daily",
-            "[\"≥30m apart from food\"]", "Take with water"
-        ],
-        vec![
-            "Breakfast", "food", "meal", "null", "null", "daily",
-            "[]", "null"
-        ],
-    ];
-
-    // Parse entities
-    let entities = parse_from_table(table_data)?;
-
-    // Create compiler and generate schedule
-    let mut compiler = TimeConstraintCompiler::new(entities);
-    let zone = compiler.compile()?;
-
-    // Extract a concrete schedule
-    let schedule = compiler.extract_schedule()?;
-
-    // Display formatted schedule
-    let formatted = compiler.format_schedule(&schedule);
-    println!("{}", formatted);
-
-    Ok(())
-}
-```
-
-## Constraint Syntax
-
-The library supports the following constraint types:
-
-- `≥Xh before Y`: Schedule at least X hours before Y
-- `≥Xm after Y`: Schedule at least X minutes after Y
-- `≥Xh apart from Y`: Keep separated from Y by at least X hours
-- `≥Xm apart`: Keep instances of the same entity separated by at least X minutes
-
-## Dependencies
-
-- `clock_zones`: For zone-based time constraint solving
-- `regex`: For parsing constraint expressions
-- `serde`: For serialization/deserialization support
+This example is offered under MIT license. It demonstrates how to unify “≥Xh before / after” constraints with big‐M disjunctions so they don’t become contradictory. Feel free to modify or integrate it into your own scheduling needs!
