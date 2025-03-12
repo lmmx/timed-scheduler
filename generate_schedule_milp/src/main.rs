@@ -1,77 +1,45 @@
-use generate_schedule::{example, ScheduleStrategy};
-use std::env;
-use std::process;
+use good_lp::{
+    variables, variable, constraint, default_solver, SolverModel, 
+    Solution,
+};
+use std::error::Error;
 
-fn main() {
-    // Parse command line arguments
-    let args: Vec<String> = env::args().collect();
+fn main() -> Result<(), Box<dyn Error>> {
+    // 1) Create a new set of variables:
+    //    "builder" is your handle to define & store them.
+    let mut builder = variables!();
 
-    // Check for help flag first
-    if args.iter().any(|arg| arg == "--help" || arg == "-h") {
-        print_usage();
-        return;
-    }
+    // 2) Add two integer variables, x and y:
+    let x = builder.add(variable().integer().min(0).max(10));
+    let y = builder.add(variable().integer().min(0).max(10));
 
-    // Parse strategy from args
-    let strategy = parse_strategy_from_args();
+    // 3) Create an objective expression:
+    //    good_lp needs us to build an Expression, not a float.
+    //    We can combine variables with normal arithmetic:
+    let objective = x + y; // Minimizing (x + y).
 
-    match example(strategy) {
-        Ok(_) => println!("Successfully generated schedule!"),
-        Err(e) => {
-            eprintln!("Error: {}", e);
-            process::exit(1);
-        }
-    }
-}
+    // 4) Build the problem using "minimise(...).using(...)".
+    //    We can chain constraints via ".with(...)"
+    let problem = builder
+        .minimise(objective)
+        .using(default_solver)  // pick a solver (Cbc by default)
+        .with(constraint!( x + y >= 12 )) // for example
+        .with(constraint!( x >= 3 ))      // x≥3
+        .with(constraint!( y >= 4 ));     // y≥4
 
-/// Parses command line arguments to determine the schedule strategy
-fn parse_strategy_from_args() -> ScheduleStrategy {
-    let args: Vec<String> = env::args().collect();
+    // 5) Solve the problem
+    let solution = problem.solve()?;
 
-    for (i, arg) in args.iter().enumerate() {
-        if arg == "--strategy" || arg == "-s" {
-            if i + 1 < args.len() {
-                return match args[i + 1].to_lowercase().as_str() {
-                    "earliest" => ScheduleStrategy::Earliest,
-                    "latest" => ScheduleStrategy::Latest,
-                    "centered" => ScheduleStrategy::Centered,
-                    "justified" => ScheduleStrategy::Justified,
-                    "spread" | "maximumspread" => ScheduleStrategy::MaximumSpread,
-                    _ => {
-                        eprintln!(
-                            "Warning: Unknown strategy '{}', defaulting to Centered",
-                            args[i + 1]
-                        );
-                        eprintln!("Run with --help for a list of available strategies");
-                        ScheduleStrategy::Centered
-                    }
-                };
-            }
-        }
-    }
+    // 6) Extract the solution values:
+    let x_val = solution.value(x);
+    let y_val = solution.value(y);
 
-    // Default to Centered if no strategy specified
-    ScheduleStrategy::Centered
-}
+    println!("Solution found:");
+    println!("  x = {}", x_val);
+    println!("  y = {}", y_val);
 
-/// Prints the command-line usage information
-fn print_usage() {
-    println!("Schedule Generator - Command Line Options\n");
-    println!("USAGE:");
-    println!("    generate_schedule [OPTIONS]\n");
-    println!("OPTIONS:");
-    println!("    -h, --help                  Display this help message");
-    println!("    -d, --debug                 Enable debug output");
-    println!("    -s, --strategy STRATEGY     Set the schedule extraction strategy");
-    println!("\nSTRATEGIES:");
-    println!("    earliest       Schedule all events at their earliest possible time");
-    println!("    latest         Schedule all events at their latest possible time");
-    println!(
-        "    centered       Schedule all events in the middle of their feasible range (default)"
-    );
-    println!("    justified      Distribute events evenly across the feasible time span");
-    println!("    spread         Maximize the spacing between events (similar to justified)");
-    println!("\nEXAMPLES:");
-    println!("    generate_schedule --strategy earliest --debug");
-    println!("    generate_schedule -s justified");
+    // For instance, if x + y >= 12, x≥3, y≥4, and we're minimizing x+y,
+    // The solver might pick x=3, y=9 or x=4, y=8, etc. depending on constraints.
+
+    Ok(())
 }
