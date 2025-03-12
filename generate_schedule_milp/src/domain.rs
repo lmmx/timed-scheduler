@@ -1,18 +1,10 @@
 use good_lp::variable::Variable;
 
 #[derive(Debug, Clone)]
-pub enum ConstraintType {
-    Before,
-    After,
-    Apart,
-    ApartFrom,
-}
+pub enum ConstraintType { Before, After, Apart, ApartFrom }
 
 #[derive(Debug, Clone)]
-pub enum ConstraintRef {
-    WithinGroup,
-    Unresolved(String),
-}
+pub enum ConstraintRef { WithinGroup, Unresolved(String) }
 
 #[derive(Debug, Clone)]
 pub struct ConstraintExpr {
@@ -32,23 +24,20 @@ pub enum Frequency {
 impl Frequency {
     pub fn from_str(s: &str) -> Self {
         let lower = s.to_lowercase();
-        if lower.contains("3x") {
-            Frequency::ThreeTimesDaily
-        } else if lower.contains("2x") {
-            Frequency::TwiceDaily
-        } else if lower.contains("1x") {
-            Frequency::Daily
-        } else {
-            Frequency::EveryXHours(8)
+        match () {
+            _ if lower.contains("3x") => Self::ThreeTimesDaily,
+            _ if lower.contains("2x") => Self::TwiceDaily,
+            _ if lower.contains("1x") => Self::Daily,
+            _ => Self::EveryXHours(8),
         }
     }
     
     pub fn instances_per_day(&self) -> usize {
         match self {
-            Frequency::Daily => 1,
-            Frequency::TwiceDaily => 2,
-            Frequency::ThreeTimesDaily => 3,
-            Frequency::EveryXHours(h) => 24 / (*h as usize),
+            Self::Daily => 1,
+            Self::TwiceDaily => 2,
+            Self::ThreeTimesDaily => 3,
+            Self::EveryXHours(h) => 24 / (*h as usize),
         }
     }
 }
