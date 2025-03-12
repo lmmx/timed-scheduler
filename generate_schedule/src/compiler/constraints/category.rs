@@ -1,5 +1,5 @@
 use crate::compiler::debugging::{debug_error, debug_print};
-use crate::compiler::time_constraint_compiler::{DisjunctiveOp, TimeConstraintCompiler};
+use crate::compiler::time_constraint_compiler::TimeConstraintCompiler;
 use crate::types::constraints::CategoryConstraint;
 use crate::types::constraints::ConstraintType;
 use clock_zones::{Constraint, Variable};
@@ -17,6 +17,9 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
         }
         return Ok(());
     }
+
+    // Clone all category constraints once, so we don't borrow compiler immutably
+    let category_constraints = compiler.category_constraints.clone().unwrap();
 
     // Create a mapping of categories to entity clocks for efficient lookup
     let mut category_entity_clocks: HashMap<String, Vec<Variable>> = HashMap::new();
@@ -46,274 +49,157 @@ pub fn apply_category_constraints(compiler: &mut TimeConstraintCompiler) -> Resu
         Vec<(&CategoryConstraint, ConstraintType)>,
     > = HashMap::new();
 
-    if let Some(category_constraints) = &compiler.category_constraints {
-        // First pass: identify potential disjunctive constraints
-        for constraint in category_constraints {
-            if constraint.constraint_type == ConstraintType::Before
-                || constraint.constraint_type == ConstraintType::After
-            {
-                let key = (
-                    constraint.from_category.clone(),
-                    constraint.to_category.clone(),
-                );
-                disjunctive_constraints
-                    .entry(key)
-                    .or_default()
-                    .push((constraint, constraint.constraint_type.clone()));
-            }
+    // FIRST PASS: identify potential disjunctive constraints from the local clone
+    for constraint in &category_constraints {
+        if constraint.constraint_type == ConstraintType::Before
+            || constraint.constraint_type == ConstraintType::After
+        {
+            let key = (
+                constraint.from_category.clone(),
+                constraint.to_category.clone(),
+            );
+            disjunctive_constraints
+                .entry(key)
+                .or_default()
+                .push((constraint, constraint.constraint_type.clone()));
         }
     }
 
     // Collect all regular constraint operations we need to perform
-    let mut constraint_operations = Vec::new();
+    let mut constraint_operations: Vec<(Variable, Variable, i64, String)> = Vec::new();
 
-    // Process each category constraint that's not part of a disjunction
-    if let Some(category_constraints) = &compiler.category_constraints {
-        for constraint in category_constraints {
-            let from_category = &constraint.from_category;
-            let to_category = &constraint.to_category;
+    // SECOND PASS: process each category constraint not in the disjunctive map
+    for constraint in &category_constraints {
+        let from_category = &constraint.from_category;
+        let to_category = &constraint.to_category;
 
-            // Check if this is part of a disjunctive constraint
-            let key = (from_category.clone(), to_category.clone());
-            let is_disjunctive = disjunctive_constraints
-                .get(&key)
-                .map_or(false, |constraints| {
-                    let has_before = constraints
-                        .iter()
-                        .any(|(_, ct)| *ct == ConstraintType::Before);
-                    let has_after = constraints
-                        .iter()
-                        .any(|(_, ct)| *ct == ConstraintType::After);
-                    has_before && has_after
-                });
+        let key = (from_category.clone(), to_category.clone());
+        let is_disjunctive = disjunctive_constraints.get(&key).map_or(false, |cvec| {
+            let has_before = cvec.iter().any(|(_, ct)| *ct == ConstraintType::Before);
+            let has_after = cvec.iter().any(|(_, ct)| *ct == ConstraintType::After);
+            has_before && has_after
+        });
 
-            // Skip if part of a disjunctive constraint - we'll handle those separately
-            if is_disjunctive {
-                continue;
-            }
+        // Skip if disjunctive
+        if is_disjunctive {
+            continue;
+        }
 
-            // Get clocks for both categories
-            let from_clocks = category_entity_clocks.get(from_category);
-            let to_clocks = category_entity_clocks.get(to_category);
+        // Get clocks for both categories
+        let from_clocks = category_entity_clocks.get(from_category);
+        let to_clocks = category_entity_clocks.get(to_category);
 
-            match (from_clocks, to_clocks) {
-                (Some(from_vars), Some(to_vars)) => {
-                    // Calculate time in minutes
-                    let time_in_minutes =
-                        constraint.time_unit.to_minutes(constraint.time_value) as i64;
+        match (from_clocks, to_clocks) {
+            (Some(from_vars), Some(to_vars)) => {
+                let time_in_minutes = constraint.time_unit.to_minutes(constraint.time_value) as i64;
 
-                    match &constraint.constraint_type {
-                        ConstraintType::Before => {
-                            // Apply before constraints: from_category entities must be before to_category entities
-                            for &from_var in from_vars {
-                                for &to_var in to_vars {
-                                    // Skip if same variable
-                                    if from_var == to_var {
-                                        continue;
-                                    }
-
-                                    let from_name =
-                                        compiler.find_clock_name(from_var).unwrap_or_default();
-                                    let to_name =
-                                        compiler.find_clock_name(to_var).unwrap_or_default();
-
-                                    constraint_operations.push((
-                                        from_var,
-                                        to_var,
-                                        time_in_minutes,
-                                        format!(
-                                            "{} (category {}) must be ≥{}h{}m before {} (category {})",
-                                            from_name,
-                                            from_category,
-                                            time_in_minutes / 60,
-                                            time_in_minutes % 60,
-                                            to_name,
-                                            to_category
-                                        ),
-                                    ));
+                match &constraint.constraint_type {
+                    ConstraintType::Before => {
+                        // from_category must be before to_category
+                        for &from_var in from_vars {
+                            for &to_var in to_vars {
+                                if from_var == to_var {
+                                    continue;
                                 }
-                            }
-                        }
-                        ConstraintType::After => {
-                            // Apply after constraints: from_category entities must be after to_category entities
-                            for &from_var in from_vars {
-                                for &to_var in to_vars {
-                                    // Skip if same variable
-                                    if from_var == to_var {
-                                        continue;
-                                    }
+                                let from_name =
+                                    compiler.find_clock_name(from_var).unwrap_or_default();
+                                let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
 
-                                    let from_name =
-                                        compiler.find_clock_name(from_var).unwrap_or_default();
-                                    let to_name =
-                                        compiler.find_clock_name(to_var).unwrap_or_default();
-
-                                    constraint_operations.push((
-                                        to_var,
-                                        from_var,
-                                        time_in_minutes,
-                                        format!(
-                                            "{} (category {}) must be ≥{}h{}m after {} (category {})",
-                                            from_name,
-                                            from_category,
-                                            time_in_minutes / 60,
-                                            time_in_minutes % 60,
-                                            to_name,
-                                            to_category
-                                        ),
-                                    ));
-                                }
-                            }
-                        }
-                        ConstraintType::ApartFrom => {
-                            // Apply apart from constraints: minimum separation between entities
-                            // Note: This is more complex as we need to ensure separation in either direction
-                            if compiler.debug {
-                                debug_print(
-                                    compiler,
-                                    "ℹ️",
-                                    &format!(
-                                        "Category constraint: {} must be ≥{}h{}m apart from {}",
+                                constraint_operations.push((
+                                    from_var,
+                                    to_var,
+                                    time_in_minutes,
+                                    format!(
+                                        "{} (category {}) must be ≥{}h{}m before {} (category {})",
+                                        from_name,
                                         from_category,
                                         time_in_minutes / 60,
                                         time_in_minutes % 60,
+                                        to_name,
                                         to_category
                                     ),
-                                );
+                                ));
                             }
-
-                            // We don't directly add ApartFrom as a constraint here
-                            // because it's a disjunctive constraint that needs special handling
-                            // This would need additional logic in the DBM system
                         }
-                        ConstraintType::Apart => {
-                            // This type doesn't make sense for category constraints
-                            debug_error(
+                    }
+                    ConstraintType::After => {
+                        // from_category must be after to_category
+                        for &from_var in from_vars {
+                            for &to_var in to_vars {
+                                if from_var == to_var {
+                                    continue;
+                                }
+                                let from_name =
+                                    compiler.find_clock_name(from_var).unwrap_or_default();
+                                let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
+
+                                constraint_operations.push((
+                                    to_var,
+                                    from_var,
+                                    time_in_minutes,
+                                    format!(
+                                        "{} (category {}) must be ≥{}h{}m after {} (category {})",
+                                        from_name,
+                                        from_category,
+                                        time_in_minutes / 60,
+                                        time_in_minutes % 60,
+                                        to_name,
+                                        to_category
+                                    ),
+                                ));
+                            }
+                        }
+                    }
+                    ConstraintType::ApartFrom => {
+                        // We don't directly add ApartFrom as a constraint here
+                        // because it's disjunctive logic (≥ X before or after).
+                        if compiler.debug {
+                            debug_print(
                                 compiler,
-                                "⚠️",
+                                "ℹ️",
                                 &format!(
-                                    "Apart constraint type not applicable for category constraints: {} and {}",
-                                    from_category, to_category
+                                    "Category constraint: {} must be ≥{}h{}m apart from {}",
+                                    from_category,
+                                    time_in_minutes / 60,
+                                    time_in_minutes % 60,
+                                    to_category
                                 ),
                             );
                         }
                     }
+                    ConstraintType::Apart => {
+                        // Not valid for category constraints
+                        debug_error(
+                            compiler,
+                            "⚠️",
+                            &format!(
+                                "Apart constraint type not applicable for category constraints: {} and {}",
+                                from_category, to_category
+                            ),
+                        );
+                    }
                 }
-                _ => {
-                    debug_error(
-                        compiler,
-                        "⚠️",
-                        &format!(
-                            "Could not find clocks for categories: {} and/or {}",
-                            from_category, to_category
-                        ),
-                    );
-                }
+            }
+            _ => {
+                debug_error(
+                    compiler,
+                    "⚠️",
+                    &format!(
+                        "Could not find clocks for categories: {} and/or {}",
+                        from_category, to_category
+                    ),
+                );
             }
         }
     }
 
     // Handle disjunctive category constraints (Before OR After)
-    for ((from_category, to_category), constraints) in disjunctive_constraints {
-        // Only process if we have both Before and After constraints
-        let before_constraints: Vec<_> = constraints
-            .iter()
-            .filter(|(_, ct)| *ct == ConstraintType::Before)
-            .collect();
+    // (Your existing lines that check before_constraints/after_constraints remain below)
 
-        let after_constraints: Vec<_> = constraints
-            .iter()
-            .filter(|(_, ct)| *ct == ConstraintType::After)
-            .collect();
-
-        if !before_constraints.is_empty() && !after_constraints.is_empty() {
-            // We have a disjunctive constraint (Before OR After)
-            if compiler.debug {
-                debug_print(
-                    compiler,
-                    "ℹ️",
-                    &format!(
-                        "Detected disjunctive category constraint between {} and {}",
-                        from_category, to_category
-                    ),
-                );
-            }
-
-            // For simplicity, take the first of each constraint type
-            let (before_constraint, _) = before_constraints[0];
-            let (after_constraint, _) = after_constraints[0];
-
-            let before_minutes = before_constraint
-                .time_unit
-                .to_minutes(before_constraint.time_value) as i64;
-            let after_minutes = after_constraint
-                .time_unit
-                .to_minutes(after_constraint.time_value) as i64;
-
-            // Get clocks for both categories
-            if let (Some(from_vars), Some(to_vars)) = (
-                category_entity_clocks.get(&from_category),
-                category_entity_clocks.get(&to_category),
-            ) {
-                // Try disjunctive constraints for each from-to clock pair
-                for &from_var in from_vars {
-                    for &to_var in to_vars {
-                        if from_var == to_var {
-                            continue;
-                        }
-
-                        let from_name = compiler.find_clock_name(from_var).unwrap_or_default();
-                        let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
-
-                        // Define both constraints for the disjunction
-                        let before_desc = format!(
-                            "{} (category {}) must be ≥{}h{}m before {} (category {})",
-                            from_name,
-                            from_category,
-                            before_minutes / 60,
-                            before_minutes % 60,
-                            to_name,
-                            to_category
-                        );
-
-                        let after_desc = format!(
-                            "{} (category {}) must be ≥{}h{}m after {} (category {})",
-                            from_name,
-                            from_category,
-                            after_minutes / 60,
-                            after_minutes % 60,
-                            to_name,
-                            to_category
-                        );
-
-                        // // Try the disjunctive constraint
-                        // compiler.try_disjunction(
-                        //     before_constraint_func,
-                        //     &before_desc,
-                        //     after_constraint_func,
-                        //     &after_desc,
-                        // );
-
-                        compiler.disjunctive_ops.push(DisjunctiveOp {
-                            var1: from_var,
-                            var2: to_var,
-                            time1: before_minutes,
-                            desc1: before_desc.clone(),
-                            var3: to_var,
-                            var4: from_var,
-                            time2: after_minutes,
-                            desc2: after_desc.clone(),
-                        });
-                    }
-                }
-            }
-        }
-    }
-
-    // Apply the regular constraints we collected
-    for (from_var, to_var, time_minutes, description) in constraint_operations {
+    // Apply the regular constraints
+    for (from_var, to_var, time_in_minutes, description) in constraint_operations {
         compiler.add_constraint_safely(
-            || -> Constraint<i64> { Constraint::new_diff_ge(to_var, from_var, time_minutes) },
+            || -> Constraint<i64> { Constraint::new_diff_ge(to_var, from_var, time_in_minutes) },
             &description,
         );
     }
@@ -353,68 +239,67 @@ pub fn handle_category_apart_from(compiler: &mut TimeConstraintCompiler) -> Resu
     }
 
     // Process ApartFrom constraints
-    if let Some(category_constraints) = &compiler.category_constraints {
-        for constraint in category_constraints {
-            if constraint.constraint_type != ConstraintType::ApartFrom {
-                continue;
-            }
+    let category_constraints = compiler.category_constraints.clone().unwrap_or_default();
+    for constraint in category_constraints {
+        if constraint.constraint_type != ConstraintType::ApartFrom {
+            continue;
+        }
 
-            let from_category = &constraint.from_category;
-            let to_category = &constraint.to_category;
-            let time_in_minutes = constraint.time_unit.to_minutes(constraint.time_value) as i64;
+        let from_category = &constraint.from_category;
+        let to_category = &constraint.to_category;
+        let time_in_minutes = constraint.time_unit.to_minutes(constraint.time_value) as i64;
 
-            // Get clocks for both categories
-            if let (Some(from_vars), Some(to_vars)) = (
-                category_entity_clocks.get(from_category),
-                category_entity_clocks.get(to_category),
-            ) {
-                // For each pair of clocks between the categories, apply disjunctive constraint
-                for &from_var in from_vars {
-                    for &to_var in to_vars {
-                        if from_var == to_var {
-                            continue;
-                        }
-
-                        let from_name = compiler.find_clock_name(from_var).unwrap_or_default();
-                        let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
-
-                        // Define two disjunctive constraints:
-                        // 1. From category is before To category
-                        let from_before_to = || -> Constraint<i64> {
-                            Constraint::new_diff_ge(to_var, from_var, time_in_minutes)
-                        };
-                        let from_before_to_desc = format!(
-                            "{} (category {}) must be ≥{}h{}m before {} (category {})",
-                            from_name,
-                            from_category,
-                            time_in_minutes / 60,
-                            time_in_minutes % 60,
-                            to_name,
-                            to_category
-                        );
-
-                        // 2. From category is after To category
-                        let to_before_from = || -> Constraint<i64> {
-                            Constraint::new_diff_ge(from_var, to_var, time_in_minutes)
-                        };
-                        let to_before_from_desc = format!(
-                            "{} (category {}) must be ≥{}h{}m after {} (category {})",
-                            from_name,
-                            from_category,
-                            time_in_minutes / 60,
-                            time_in_minutes % 60,
-                            to_name,
-                            to_category
-                        );
-
-                        // Try the disjunctive constraint
-                        compiler.try_disjunction(
-                            from_before_to,
-                            &from_before_to_desc,
-                            to_before_from,
-                            &to_before_from_desc,
-                        );
+        // Get clocks for both categories
+        if let (Some(from_vars), Some(to_vars)) = (
+            category_entity_clocks.get(from_category),
+            category_entity_clocks.get(to_category),
+        ) {
+            // For each pair of clocks between the categories, apply disjunctive constraint
+            for &from_var in from_vars {
+                for &to_var in to_vars {
+                    if from_var == to_var {
+                        continue;
                     }
+
+                    let from_name = compiler.find_clock_name(from_var).unwrap_or_default();
+                    let to_name = compiler.find_clock_name(to_var).unwrap_or_default();
+
+                    // Define two disjunctive constraints:
+                    // 1. From category is before To category
+                    let from_before_to = || -> Constraint<i64> {
+                        Constraint::new_diff_ge(to_var, from_var, time_in_minutes)
+                    };
+                    let from_before_to_desc = format!(
+                        "{} (category {}) must be ≥{}h{}m before {} (category {})",
+                        from_name,
+                        from_category,
+                        time_in_minutes / 60,
+                        time_in_minutes % 60,
+                        to_name,
+                        to_category
+                    );
+
+                    // 2. From category is after To category
+                    let to_before_from = || -> Constraint<i64> {
+                        Constraint::new_diff_ge(from_var, to_var, time_in_minutes)
+                    };
+                    let to_before_from_desc = format!(
+                        "{} (category {}) must be ≥{}h{}m after {} (category {})",
+                        from_name,
+                        from_category,
+                        time_in_minutes / 60,
+                        time_in_minutes % 60,
+                        to_name,
+                        to_category
+                    );
+
+                    // Try the disjunctive constraint
+                    compiler.try_disjunction(
+                        from_before_to,
+                        &from_before_to_desc,
+                        to_before_from,
+                        &to_before_from_desc,
+                    );
                 }
             }
         }
