@@ -4,12 +4,12 @@ use std::collections::{HashMap, HashSet};
 use std::env;
 
 use crate::compiler::clock_info::ClockInfo;
-use crate::compiler::constraints::{daily_bounds, entity, frequency, category};
+use crate::compiler::constraints::{category, daily_bounds, entity, frequency};
 use crate::compiler::debugging;
 use crate::compiler::schedule_extraction;
 use crate::extractor::schedule_extractor::ScheduleStrategy;
-use crate::types::entity::Entity;
 use crate::types::constraints::CategoryConstraint;
+use crate::types::entity::Entity;
 
 pub struct TimeConstraintCompiler {
     // Maps entity names to their data
@@ -271,5 +271,219 @@ impl TimeConstraintCompiler {
     // Delegate to schedule_extraction module
     pub fn format_schedule(&self, schedule: &HashMap<String, i32>) -> String {
         schedule_extraction::format_schedule(self, schedule)
+    }
+}
+
+pub fn try_disjunction<F1, F2>(
+    &mut self,
+    constraint1_builder: F1,
+    constraint1_desc: &str,
+    constraint2_builder: F2,
+    constraint2_desc: &str,
+) -> bool
+where
+    F1: Fn() -> clock_zones::Constraint<i64>,
+    F2: Fn() -> clock_zones::Constraint<i64>,
+{
+    // Try first constraint
+    let mut test_zone1 = self.zone.clone();
+    test_zone1.add_constraint(constraint1_builder());
+    let first_feasible = !test_zone1.is_empty();
+
+    // Try second constraint
+    let mut test_zone2 = self.zone.clone();
+    test_zone2.add_constraint(constraint2_builder());
+    let second_feasible = !test_zone2.is_empty();
+
+    if !first_feasible && !second_feasible {
+        // Neither constraint works
+        debugging::debug_error(
+            self,
+            "⚠️",
+            &format!(
+                "Neither disjunctive constraint is feasible: {} OR {}",
+                constraint1_desc, constraint2_desc
+            ),
+        );
+        return false;
+    } else if first_feasible && !second_feasible {
+        // Only first constraint is feasible
+        debugging::debug_print(
+            self,
+            "✅",
+            &format!(
+                "Choosing first disjunctive constraint (second is infeasible): {}",
+                constraint1_desc
+            ),
+        );
+        self.zone.add_constraint(constraint1_builder());
+        return true;
+    } else if !first_feasible && second_feasible {
+        // Only second constraint is feasible
+        debugging::debug_print(
+            self,
+            "✅",
+            &format!(
+                "Choosing second disjunctive constraint (first is infeasible): {}",
+                constraint2_desc
+            ),
+        );
+        self.zone.add_constraint(constraint2_builder());
+        return true;
+    } else {
+        // Both constraints are feasible, choose the better one
+        // For this implementation, let's use a simple heuristic:
+        // Choose the constraint that results in a more balanced schedule
+
+        // For a balanced schedule, we'll use a simple metric: compute the sum of
+        // all shortest path differences between clocks after applying each constraint
+        let mut sum1 = 0;
+        let mut sum2 = 0;
+
+        for i in 0..self.next_clock_index {
+            for j in i + 1..self.next_clock_index {
+                let var_i = clock_zones::Clock::variable(i);
+                let var_j = clock_zones::Clock::variable(j);
+
+                if let Some(diff1) = test_zone1.shortest_path(var_i, var_j) {
+                    sum1 += diff1.abs();
+                }
+
+                if let Some(diff2) = test_zone2.shortest_path(var_i, var_j) {
+                    sum2 += diff2.abs();
+                }
+            }
+        }
+
+        // Choose the constraint that results in smaller total differences,
+        // which generally indicates a more balanced schedule
+        if sum1 <= sum2 {
+            debugging::debug_print(
+                self,
+                "✅",
+                &format!(
+                    "Both disjunctive constraints are feasible, choosing first based on schedule quality: {}",
+                    constraint1_desc
+                ),
+            );
+            self.zone.add_constraint(constraint1_builder());
+        } else {
+            debugging::debug_print(
+                self,
+                "✅",
+                &format!(
+                    "Both disjunctive constraints are feasible, choosing second based on schedule quality: {}",
+                    constraint2_desc
+                ),
+            );
+            self.zone.add_constraint(constraint2_builder());
+        }
+        return true;
+    }
+}
+// Add this at the end of src/compiler/time_constraint_compiler.rs
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::entity::Entity;
+    use crate::types::frequency::FrequencyType;
+    use clock_zones::{Clock, Constraint};
+
+    #[test]
+    fn test_try_disjunction() {
+        // Create a simple compiler with two entities
+        let entity1 = Entity::new(
+            "medication".to_string(),
+            "medicine".to_string(),
+            FrequencyType::TwiceDaily,
+        );
+        let entity2 = Entity::new(
+            "meal".to_string(),
+            "food".to_string(),
+            FrequencyType::TwiceDaily,
+        );
+
+        let mut compiler = TimeConstraintCompiler::new(vec![entity1, entity2]);
+
+        // Allocate clocks and set daily bounds to initialize the zone
+        compiler.allocate_clocks().unwrap();
+        daily_bounds::apply_daily_bounds(&mut compiler).unwrap();
+
+        // Get variables for testing
+        let med1_var = compiler.clocks.get("medication_1").unwrap().variable;
+        let meal1_var = compiler.clocks.get("meal_1").unwrap().variable;
+
+        // Test case 1: Both constraints are feasible
+        // Define two disjunctive constraints:
+        // 1. Medication is 2h before meal
+        let before_constraint = || Constraint::new_diff_ge(meal1_var, med1_var, 120);
+        // 2. Medication is 1h after meal
+        let after_constraint = || Constraint::new_diff_ge(med1_var, meal1_var, 60);
+
+        // Try the disjunction
+        let result = compiler.try_disjunction(
+            before_constraint,
+            "medication must be ≥2h before meal",
+            after_constraint,
+            "medication must be ≥1h after meal",
+        );
+
+        assert!(result, "Disjunction should be feasible");
+
+        // Test case 2: Only the first constraint is feasible
+        // Force the second constraint to be infeasible by adding a tight upper bound
+        compiler
+            .zone
+            .add_constraint(Constraint::new_diff_le(med1_var, meal1_var, 30));
+
+        // Define constraints again
+        let before_constraint = || Constraint::new_diff_ge(meal1_var, med1_var, 120);
+        let after_constraint = || Constraint::new_diff_ge(med1_var, meal1_var, 60);
+
+        // Try the disjunction
+        let result = compiler.try_disjunction(
+            before_constraint,
+            "medication must be ≥2h before meal",
+            after_constraint,
+            "medication must be ≥1h after meal",
+        );
+
+        assert!(result, "Disjunction should choose the feasible constraint");
+
+        // Test case 3: Neither constraint is feasible
+        // Reset the zone
+        compiler = TimeConstraintCompiler::new(vec![entity1, entity2]);
+        compiler.allocate_clocks().unwrap();
+        daily_bounds::apply_daily_bounds(&mut compiler).unwrap();
+
+        // Get variables again
+        let med1_var = compiler.clocks.get("medication_1").unwrap().variable;
+        let meal1_var = compiler.clocks.get("meal_1").unwrap().variable;
+
+        // Force a tight schedule where neither constraint can be satisfied
+        compiler
+            .zone
+            .add_constraint(Constraint::new_diff_le(med1_var, meal1_var, 30)); // Med before meal by at most 30 min
+        compiler
+            .zone
+            .add_constraint(Constraint::new_diff_le(meal1_var, med1_var, 30)); // Meal before med by at most 30 min
+
+        // Define constraints again
+        let before_constraint = || Constraint::new_diff_ge(meal1_var, med1_var, 120);
+        let after_constraint = || Constraint::new_diff_ge(med1_var, meal1_var, 60);
+
+        // Try the disjunction
+        let result = compiler.try_disjunction(
+            before_constraint,
+            "medication must be ≥2h before meal",
+            after_constraint,
+            "medication must be ≥1h after meal",
+        );
+
+        assert!(
+            !result,
+            "Disjunction should fail when neither constraint is feasible"
+        );
     }
 }
