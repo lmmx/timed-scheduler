@@ -32,7 +32,7 @@ struct WindowInfo {
 
 fn main() -> Result<(), Box<dyn Error>> {
     let start_time = Instant::now();
-    
+
     let config = parse_config_from_args();
     println!("Using day window: {}..{} (in minutes)", config.day_start_minutes, config.day_end_minutes);
     println!("Strategy: {:?}", config.strategy);
@@ -147,7 +147,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // We collect constraints here
     let mut constraints = Vec::new();
-    
+
     // More concise debug function with toggle
     let debug_enabled = true;
     fn add_constraint(desc: &str, c: Constraint, vec: &mut Vec<Constraint>, debug: bool) {
@@ -248,12 +248,12 @@ fn main() -> Result<(), Box<dyn Error>> {
                     let b = builder.add(variable().binary());
                     let d1 = format!("(ApartFrom) {} - {} >= {} - bigM*(1-b)",
                         c2str(c_r), c2str(&c_e), tv);
-                    add_constraint(&d1, 
-                        constraint!(c_r.var - c_e.var >= tv - big_m*(1.0 - b)), 
-                        &mut constraints, 
+                    add_constraint(&d1,
+                        constraint!(c_r.var - c_e.var >= tv - big_m*(1.0 - b)),
+                        &mut constraints,
                         debug_enabled
                     );
-                    
+
                     let d2 = format!("(ApartFrom) {} - {} >= {} - bigM*b",
                         c2str(&c_e), c2str(c_r), tv);
                     add_constraint(&d2,
@@ -281,7 +281,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                                 &mut constraints,
                                 debug_enabled
                             );
-                            
+
                             let d2 = format!("(Before|After) {} - {} >= {} - M*b",
                                 c2str(&c_e), c2str(c_r), av);
                             add_constraint(&d2,
@@ -297,8 +297,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     for c_e in eclocks {
                         for c_r in &rvars {
                             let d = format!("(Before) {} - {} >= {}", c2str(c_r), c2str(c_e), bv);
-                            add_constraint(&d, 
-                                constraint!(c_r.var - c_e.var >= bv), 
+                            add_constraint(&d,
+                                constraint!(c_r.var - c_e.var >= bv),
                                 &mut constraints,
                                 debug_enabled
                             );
@@ -310,8 +310,8 @@ fn main() -> Result<(), Box<dyn Error>> {
                     for c_e in eclocks {
                         for c_r in &rvars {
                             let d = format!("(After) {} - {} >= {}", c2str(c_e), c2str(c_r), av);
-                            add_constraint(&d, 
-                                constraint!(c_e.var - c_r.var >= av), 
+                            add_constraint(&d,
+                                constraint!(c_e.var - c_r.var >= av),
                                 &mut constraints,
                                 debug_enabled
                             );
@@ -331,7 +331,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Track penalty variables for better reporting
     let mut penalty_vars: Vec<PenaltyVar> = Vec::new();
-    
+
     // Track which windows are used by which instances
     let mut window_usage_vars: HashMap<String, HashMap<(usize, usize), Variable>> = HashMap::new();
 
@@ -340,15 +340,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         if e.windows.is_empty() {
             continue;
         }
-        
+
         println!("Entity '{}': {} windows defined", e.name, e.windows.len());
-        
+
         // Get clock variables for this entity
         let eclocks = match entity_clocks.get(&e.name) {
             Some(list) => list,
             None => continue,
         };
-        
+
         // If we have multiple instances and multiple windows, track window usage
         let track_window_usage = eclocks.len() > 1 && e.windows.len() > 1;
         let mut instance_window_vars = HashMap::new();
@@ -357,7 +357,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         for cv in eclocks {
             // Create a penalty variable p_i for this instance
             let p_i = builder.add(variable().min(0.0));
-            
+
             // Store penalty info for reporting
             penalty_vars.push(PenaltyVar {
                 entity_name: e.name.clone(),
@@ -374,24 +374,24 @@ fn main() -> Result<(), Box<dyn Error>> {
                     // Create binary variable indicating if this instance uses this window
                     let window_use_var = builder.add(variable().binary());
                     instance_window_vars.insert((cv.instance, w_idx), window_use_var);
-                    
+
                     // Define "using a window" as being within 30 minutes of it
                     let use_threshold = 30.0;
-                    
+
                     // If dist_iw <= use_threshold then window_use_var = 1
                     // Using big-M: dist_iw <= use_threshold + M*(1-window_use_var)
                     add_constraint(
-                        &format!("(WinUse) {}_{} uses win{} if dist <= {}", 
+                        &format!("(WinUse) {}_{} uses win{} if dist <= {}",
                                  e.name, cv.instance, w_idx, use_threshold),
                         constraint!(dist_iw <= use_threshold + big_m*(1.0 - window_use_var)),
                         &mut constraints,
                         debug_enabled
                     );
-                    
+
                     // If dist_iw > use_threshold then window_use_var = 0
                     // Using big-M: dist_iw >= use_threshold - M*window_use_var
                     add_constraint(
-                        &format!("(WinUse) {}_{} doesn't use win{} if dist > {}", 
+                        &format!("(WinUse) {}_{} doesn't use win{} if dist > {}",
                                  e.name, cv.instance, w_idx, use_threshold),
                         constraint!(dist_iw >= use_threshold - big_m*window_use_var),
                         &mut constraints,
@@ -409,7 +409,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             &mut constraints,
                             debug_enabled
                         );
-                        
+
                         // dist_iw >= a - t_i
                         add_constraint(
                             &format!("(Win-) dist_{}_w{} >= {} - {}", cv.instance, w_idx, a, c2str(cv)),
@@ -427,7 +427,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             &mut constraints,
                             debug_enabled
                         );
-                        
+
                         // dist_iw >= t_i - end (if t_i > end)
                         add_constraint(
                             &format!("(WinE) dist_{}_w{} >= {} - {}", cv.instance, w_idx, c2str(cv), end),
@@ -447,26 +447,26 @@ fn main() -> Result<(), Box<dyn Error>> {
                 );
             }
         }
-        
+
         // If we're tracking window usage for this entity, save the variables
         if track_window_usage {
             window_usage_vars.insert(e.name.clone(), instance_window_vars);
         }
     }
-    
+
     // (3) Window distribution constraints
     // Ensure instances of the same entity use different windows when possible
     println!("\n--- Adding window distribution constraints ---");
-    
+
     for (ename, instance_window_map) in &window_usage_vars {
         let eclocks = entity_clocks.get(ename).unwrap();
         let window_count = entities.iter()
             .find(|e| &e.name == ename)
             .map(|e| e.windows.len())
             .unwrap_or(0);
-            
+
         println!("Entity '{}': ensuring distribution across {} windows", ename, window_count);
-        
+
         // Each instance must use exactly one window
         for cv in eclocks {
             let mut sum_expr = Expression::from(0.0);
@@ -475,7 +475,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     sum_expr += use_var;
                 }
             }
-            
+
             add_constraint(
                 &format!("(Dist) {}_instance{} must use exactly one window", ename, cv.instance),
                 constraint!(sum_expr == 1.0),
@@ -483,7 +483,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 debug_enabled
             );
         }
-        
+
         // Each window can be used at most once
         // (this forces distribution across windows)
         for w_idx in 0..window_count {
@@ -493,7 +493,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     sum_expr += use_var;
                 }
             }
-            
+
             add_constraint(
                 &format!("(Dist) {}_window{} can be used at most once", ename, w_idx),
                 constraint!(sum_expr <= 1.0),
@@ -507,7 +507,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     // For earliest => minimize(sum(t_i) + alpha * sum(p_i))
     // For latest   => maximize(sum(t_i) - alpha * sum(p_i))
     //               = minimize(-sum(t_i) + alpha * sum(p_i))
-    
+
     // Sum of all time variables
     let mut sum_expr = Expression::from(0.0);
     for cv in clock_map.values() {
@@ -522,7 +522,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // Add all constraints to the problem
     println!("\nSolving problem with {} constraints...", constraints.len());
-    
+
     let mut problem = match config.strategy {
         ScheduleStrategy::Earliest => {
             println!("\nObjective: minimize(sum(t_i) + {} * sum(p_i))", alpha);
@@ -539,13 +539,13 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     // 1) Take the length before consuming constraints.
     let constraint_count = constraints.len();
-    
+
     // 2) Now actually consume the constraints.
     for c in constraints {
         problem = problem.with(c);
     }
     let solve_start = Instant::now();
-    
+
     let sol = match problem.solve() {
         Ok(s) => s,
         Err(e) => {
@@ -553,7 +553,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             return Err(format!("Solve error: {e}").into());
         }
     };
-    
+
     let solve_time = solve_start.elapsed();
     println!("Problem solved in {:.2?}", solve_time);
 
@@ -571,11 +571,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     println!("├─────────────────────────────────────────────┤");
     println!("│ Time     | Instance                | Entity │");
     println!("├──────────┼─────────────────────────┼────────┤");
-    
+
     for (cid, ename, _instance, t) in &schedule {
         let hh = (t / 60.0).floor() as i32;
         let mm = (t % 60.0).round() as i32;
-        println!("│ {:02}:{:02}    | {:<23} | {:<6} │", 
+        println!("│ {:02}:{:02}    | {:<23} | {:<6} │",
                  hh, mm, cid, ename);
     }
     println!("└─────────────────────────────────────────────┘");
@@ -587,25 +587,25 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("├─────────────────────────────────────────────┤");
         println!("│ Entity     | Window          | Used By      │");
         println!("├────────────┼─────────────────┼──────────────┤");
-        
+
         for (ename, instance_window_map) in &window_usage_vars {
             let e = entities.iter().find(|e| e.name == *ename).unwrap();
-            
+
             for w_idx in 0..e.windows.len() {
                 let window_desc = match &entity_windows.get(ename).unwrap()[w_idx].time_desc {
                     desc => desc.clone(),
                 };
-                
+
                 let mut users = Vec::new();
                 for (instance, idx) in instance_window_map.keys() {
                     if *idx == w_idx && sol.value(instance_window_map[&(*instance, *idx)]) > 0.5 {
                         users.push(format!("#{}", instance));
                     }
                 }
-                
+
                 let usage = if users.is_empty() { "None".to_string() } else { users.join(", ") };
-                
-                println!("│ {:<10} | {:<15} | {:<12} │", 
+
+                println!("│ {:<10} | {:<15} | {:<12} │",
                          ename, window_desc, usage);
             }
             println!("├────────────┼─────────────────┼──────────────┤");
@@ -620,22 +620,22 @@ fn main() -> Result<(), Box<dyn Error>> {
         println!("├───────────────────────────────────────────────────────┤");
         println!("│ Entity     | Instance | Deviation | Preferred Windows │");
         println!("├────────────┼──────────┼───────────┼───────────────────┤");
-        
+
         let mut total_penalty = 0.0;
-        
+
         for p in &penalty_vars {
             let p_val = sol.value(p.var);
             total_penalty += p_val;
-            
+
             // Find the actual time for this entity/instance
             let instance_time = schedule.iter()
                 .find(|(_, ename, inst, _)| ename == &p.entity_name && inst == &p.instance)
                 .map(|(_, _, _, t)| *t)
                 .unwrap_or(0.0);
-            
+
             let hh = (instance_time / 60.0).floor() as i32;
             let mm = (instance_time % 60.0).round() as i32;
-            
+
             // Get window descriptions for this entity
             let window_descriptions = match entity_windows.get(&p.entity_name) {
                 Some(windows) => windows.iter()
@@ -644,20 +644,20 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .join(", "),
                 None => "None".to_string(),
             };
-            
+
             let deviation_display = if p_val < 0.001 {
                 "On target".to_string()
             } else {
                 format!("{:.1} min", p_val)
             };
-            
-            println!("│ {:<10} | {:<8} | {:<9} | {:<17} │", 
-                     p.entity_name, 
+
+            println!("│ {:<10} | {:<8} | {:<9} | {:<17} │",
+                     p.entity_name,
                      format!("#{} ({:02}:{:02})", p.instance, hh, mm),
                      deviation_display,
                      window_descriptions);
         }
-        
+
         println!("├────────────┴──────────┴───────────┴───────────────────┤");
         println!("│ Total penalty: {:<39.1} │", total_penalty);
         println!("└───────────────────────────────────────────────────────┘");
@@ -676,14 +676,14 @@ fn main() -> Result<(), Box<dyn Error>> {
 // Helper function to create window descriptions for better reporting
 fn create_window_info_map(entities: &[Entity]) -> HashMap<String, Vec<WindowInfo>> {
     let mut result = HashMap::new();
-    
+
     for e in entities {
         if e.windows.is_empty() {
             continue;
         }
-        
+
         let mut windows = Vec::new();
-        
+
         for w in &e.windows {
             match w {
                 WindowSpec::Anchor(a) => {
@@ -699,15 +699,15 @@ fn create_window_info_map(entities: &[Entity]) -> HashMap<String, Vec<WindowInfo
                     let end_hh = end / 60;
                     let end_mm = end % 60;
                     windows.push(WindowInfo {
-                        time_desc: format!("{:02}:{:02}-{:02}:{:02}", 
+                        time_desc: format!("{:02}:{:02}-{:02}:{:02}",
                                           start_hh, start_mm, end_hh, end_mm),
                     });
                 },
             }
         }
-        
+
         result.insert(e.name.clone(), windows);
     }
-    
+
     result
 }
