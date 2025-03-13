@@ -22,13 +22,11 @@ struct PenaltyVar {
     entity_name: String,
     instance: usize,
     var: Variable,
-    windows: Vec<WindowSpec>,
 }
 
 // Structure to capture window information for better reporting
 #[derive(Debug, Clone)]
 struct WindowInfo {
-    window_type: String,
     time_desc: String,
 }
 
@@ -365,7 +363,6 @@ fn main() -> Result<(), Box<dyn Error>> {
                 entity_name: e.name.clone(),
                 instance: cv.instance,
                 var: p_i,
-                windows: e.windows.clone(),
             });
 
             // Create one distance variable for each window
@@ -693,7 +690,6 @@ fn create_window_info_map(entities: &[Entity]) -> HashMap<String, Vec<WindowInfo
                     let hh = a / 60;
                     let mm = a % 60;
                     windows.push(WindowInfo {
-                        window_type: "Anchor".to_string(),
                         time_desc: format!("{:02}:{:02}", hh, mm),
                     });
                 },
@@ -703,7 +699,6 @@ fn create_window_info_map(entities: &[Entity]) -> HashMap<String, Vec<WindowInfo
                     let end_hh = end / 60;
                     let end_mm = end % 60;
                     windows.push(WindowInfo {
-                        window_type: "Range".to_string(),
                         time_desc: format!("{:02}:{:02}-{:02}:{:02}", 
                                           start_hh, start_mm, end_hh, end_mm),
                     });
