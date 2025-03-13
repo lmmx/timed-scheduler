@@ -104,7 +104,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "null",
             "2x daily",
             "[]",               // no 'apart' constraints
-            "[\"08:00\", \"12:00-13:00\", \"19:00\"]", // has 2 anchors & 1 range
+            "[\"08:00\", \"18:00-20:00\"]", // has 1 anchor & 1 range
             "some note",
         ],
     ];
