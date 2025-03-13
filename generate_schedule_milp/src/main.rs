@@ -247,7 +247,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                 for c_r in &rvars {
                     let b = builder.add(variable().binary());
                     let d1 = format!("(ApartFrom) {} - {} >= {} - bigM*(1-b)",
-                        c2str(c_r), c2str(&c_e), tv);
+                        c2str(c_r), c2str(c_e), tv);
                     add_constraint(&d1,
                         constraint!(c_r.var - c_e.var >= tv - big_m*(1.0 - b)),
                         &mut constraints,
@@ -255,7 +255,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                     );
 
                     let d2 = format!("(ApartFrom) {} - {} >= {} - bigM*b",
-                        c2str(&c_e), c2str(c_r), tv);
+                        c2str(c_e), c2str(c_r), tv);
                     add_constraint(&d2,
                         constraint!(c_e.var - c_r.var >= tv - big_m*b),
                         &mut constraints,
@@ -275,7 +275,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                         for c_r in &rvars {
                             let b = builder.add(variable().binary());
                             let d1 = format!("(Before|After) {} - {} >= {} - M*(1-b)",
-                                c2str(c_r), c2str(&c_e), bv);
+                                c2str(c_r), c2str(c_e), bv);
                             add_constraint(&d1,
                                 constraint!(c_r.var - c_e.var >= bv - big_m*(1.0 - b)),
                                 &mut constraints,
@@ -283,7 +283,7 @@ fn main() -> Result<(), Box<dyn Error>> {
                             );
 
                             let d2 = format!("(Before|After) {} - {} >= {} - M*b",
-                                c2str(&c_e), c2str(c_r), av);
+                                c2str(c_e), c2str(c_r), av);
                             add_constraint(&d2,
                                 constraint!(c_e.var - c_r.var >= av - big_m*b),
                                 &mut constraints,
