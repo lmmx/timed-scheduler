@@ -592,9 +592,8 @@ fn main() -> Result<(), Box<dyn Error>> {
             let e = entities.iter().find(|e| e.name == *ename).unwrap();
 
             for w_idx in 0..e.windows.len() {
-                let window_desc = match &entity_windows.get(ename).unwrap()[w_idx].time_desc {
-                    desc => desc.clone(),
-                };
+                let desc = &entity_windows.get(ename).unwrap()[w_idx].time_desc;
+                let window_desc = desc.clone();
 
                 let mut users = Vec::new();
                 for (instance, idx) in instance_window_map.keys() {
