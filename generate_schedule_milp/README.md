@@ -12,44 +12,44 @@ The code supports an **Earliest** or **Latest** objective, plus additional const
 
 ## Key Features
 
-1. **Constraints via Regex & Big‑M**  
-   - **`≥Xh apart`** (same entity’s consecutive instances).  
-   - **`≥Xh before SomeCategory`** or **`≥Xh after SomeCategory`** (inter‐entity offsets).  
+1. **Constraints via Regex & Big‑M**
+   - **`≥Xh apart`** (same entity’s consecutive instances).
+   - **`≥Xh before SomeCategory`** or **`≥Xh after SomeCategory`** (inter‐entity offsets).
    - If _both_ “≥1 h before” and “≥2 h after” appear for the same pair, they become a single big‑M disjunction **(before OR after)**—avoiding contradictory “≥1h before AND ≥2h after” for the same referent.
 
-2. **Earliest / Latest Objective**  
-   - **Earliest**: Minimizes sum of start times, pushing tasks as early in the day as possible.  
+2. **Earliest / Latest Objective**
+   - **Earliest**: Minimizes sum of start times, pushing tasks as early in the day as possible.
    - **Latest**: Maximizes sum of start times (or equivalently, minimizes the negative sum), pushing tasks toward the end of the day window.
 
-3. **Time Windows & Distribution**  
-   - The new code can define “soft windows” (anchors or ranges) and penalize deviation, ensuring tasks stay near those times.  
+3. **Time Windows & Distribution**
+   - The new code can define “soft windows” (anchors or ranges) and penalize deviation, ensuring tasks stay near those times.
    - Optionally, it can define **binary “window usage”** constraints so multiple daily doses get distributed across windows (e.g., “breakfast,” “lunch,” “dinner”). That can prevent tasks from bunching in a single boundary time.
 
-4. **Debug Logging**  
-   - Prints lines like `(Before|After) (food_var2) - (med_var1) >= 60 - M*(1-b)` so you can see the exact constraints.  
+4. **Debug Logging**
+   - Prints lines like `(Before|After) (food_var2) - (med_var1) >= 60 - M*(1-b)` so you can see the exact constraints.
    - Provides a “Window Usage Report” or a “Penalty Report” if you’re using the distribution or soft penalty logic, showing how many tasks end up in each time slot and how far off from ideal anchors they are.
 
-5. **Table‐Driven**  
-   - A small table in `main.rs` describes each entity: frequency (2× daily, 3× daily, etc.), constraints (like `[\"≥6h apart\"]`), optional windows (e.g. `[\"08:00\", \"18:00-20:00\"]`).  
+5. **Table‐Driven**
+   - A small table in `main.rs` describes each entity: frequency (2× daily, 3× daily, etc.), constraints (like `[\"≥6h apart\"]`), optional windows (e.g. `[\"08:00\", \"18:00-20:00\"]`).
    - The code converts these lines into entity objects with constraints and then to ILP variables & constraints, all solved with [good_lp](https://docs.rs/good_lp) using the CBC solver by default.
 
 ---
 
 ## Usage
 
-1. **Run**:  
+1. **Run**:
    ```bash
    cargo run -- --strategy earliest
    cargo run -- --strategy latest
    ```
    By default it uses a day window of 08:00–22:00. You can override with e.g. `--start=07:00 --end=23:00`.
 
-2. **Check Debug Output**:  
-   - You’ll see `DEBUG => (Apart) (Entity_var2) - (Entity_var1) >= 360` lines showing each big‑M or linear constraint.  
+2. **Check Debug Output**:
+   - You’ll see `DEBUG => (Apart) (Entity_var2) - (Entity_var1) >= 360` lines showing each big‑M or linear constraint.
    - Finally, the solver prints a schedule sorted by minute of day, plus optional “Window usage” or “Penalty” info.
 
-3. **Adapt / Tweak**:  
-   - If your domain needs “3× daily spread across breakfast, lunch, dinner,” you can define 3 windows and enforce “one instance per window,” or add a penalty for leaving windows unused.  
+3. **Adapt / Tweak**:
+   - If your domain needs “3× daily spread across breakfast, lunch, dinner,” you can define 3 windows and enforce “one instance per window,” or add a penalty for leaving windows unused.
    - If you only want “Earliest” or “Latest” with no distribution logic, remove or skip the extra window constraints.
 
 ---
@@ -68,8 +68,8 @@ After running with “Earliest,” you might see:
 ```
 ```
 --- Window Usage Report ---
-  Entity          Window        Used By  
-  Chicken and rice  08:00         #1 
+  Entity          Window        Used By
+  Chicken and rice  08:00         #1
   Chicken and rice  18:00-20:00   #2
 ```
 ```
@@ -84,8 +84,8 @@ After running with “Earliest,” you might see:
 
 ## Future Extensions
 
-- **Penalize Large Gaps**: If you want tasks in windows 1 & 3 to require window 2 be used, you can add an extra penalty if windows are used out of order.  
-- **Multi‐Objective**: Combine earliest/largest with a second objective for minimal transitions, or ensure balanced usage.  
+- **Penalize Large Gaps**: If you want tasks in windows 1 & 3 to require window 2 be used, you can add an extra penalty if windows are used out of order.
+- **Multi‐Objective**: Combine earliest/largest with a second objective for minimal transitions, or ensure balanced usage.
 - **Real‐Time** or **Multi‐Day** Scheduling**: Extend the day window beyond 24 h or create separate sets of variables for multiple days.
 
 ---
