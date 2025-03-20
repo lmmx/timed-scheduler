@@ -1,6 +1,6 @@
 pub mod domain;
 use domain::{Entity, ScheduleConfig, WindowSpec};
-use good_lp::{default_solver, variable, variables, Solution, SolverModel};
+use good_lp::SolverModel;
 
 pub fn solve_schedule(
     entities: &[Entity],
