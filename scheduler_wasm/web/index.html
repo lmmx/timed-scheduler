@@ -8,56 +8,59 @@
 <body>
   <h1>WASM Scheduler Demo</h1>
 
-  <!-- Day settings panel -->
-  <section style="border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem;">
-    <h2>Schedule Settings</h2>
-    <div style="display: flex; gap: 20px; align-items: center;">
-      <div>
-        <label for="day-start">Day Start:</label>
-        <input type="text" id="day-start" value="08:00" pattern="\d{1,2}:\d{2}" title="Format: HH:MM">
+  <!-- Top container with settings and task creation -->
+  <div class="top-container">
+    <!-- Task creation form (Left) -->
+    <section class="add-task-section">
+      <h2>Add a Task</h2>
+      <label>
+        Task Name:
+        <input type="text" id="task-name" />
+      </label>
+      <br /><br />
+      <label>
+        Window Type:
+        <select id="window-type">
+          <option value="anchor" selected>Anchor</option>
+          <option value="range">Range</option>
+        </select>
+      </label>
+      <br /><br />
+
+      <!-- Anchor fields (visible by default) -->
+      <div id="anchor-inputs">
+        <label>Anchor Time (HH:MM): <input type="text" id="anchor-time" value="09:00" /></label>
       </div>
-      <div>
-        <label for="day-end">Day End:</label>
-        <input type="text" id="day-end" value="18:00" pattern="\d{1,2}:\d{2}" title="Format: HH:MM">
+
+      <!-- Range fields (hidden by default) -->
+      <div id="range-inputs" style="display: none;">
+        <label>Start (HH:MM): <input type="text" id="range-start" value="13:00" /></label>
+        <br />
+        <label>End (HH:MM): <input type="text" id="range-end" value="15:00" /></label>
       </div>
-    </div>
-  </section>
 
-  <!-- Task creation form -->
-  <section style="border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem;">
-    <h2>Add a Task</h2>
-    <label>
-      Task Name:
-      <input type="text" id="task-name" />
-    </label>
-    <br /><br />
-    <label>
-      Window Type:
-      <select id="window-type">
-        <option value="anchor" selected>Anchor</option>
-        <option value="range">Range</option>
-      </select>
-    </label>
-    <br /><br />
-
-    <!-- Anchor fields (visible by default) -->
-    <div id="anchor-inputs">
-      <label>Anchor Time (HH:MM): <input type="text" id="anchor-time" value="09:00" /></label>
-    </div>
-
-    <!-- Range fields (hidden by default) -->
-    <div id="range-inputs" style="display: none;">
-      <label>Start (HH:MM): <input type="text" id="range-start" value="13:00" /></label>
       <br />
-      <label>End (HH:MM): <input type="text" id="range-end" value="15:00" /></label>
-    </div>
+      <button id="btn-add-task">Add Task</button>
+    </section>
 
-    <br />
-    <button id="btn-add-task">Add Task</button>
-  </section>
+    <!-- Day settings panel (Right) -->
+    <section class="settings-section">
+      <h2>Schedule Settings</h2>
+      <div class="settings-grid">
+        <div>
+          <label for="day-start">Day Start:</label>
+          <input type="text" id="day-start" value="08:00" pattern="\d{1,2}:\d{2}" title="Format: HH:MM">
+        </div>
+        <div>
+          <label for="day-end">Day End:</label>
+          <input type="text" id="day-end" value="18:00" pattern="\d{1,2}:\d{2}" title="Format: HH:MM">
+        </div>
+      </div>
+    </section>
+  </div>
 
   <!-- Table of tasks -->
-  <section style="border: 1px solid #ccc; padding: 1rem;">
+  <section>
     <h2>Task List</h2>
     <table id="task-table">
       <thead>
@@ -75,7 +78,7 @@
     <button id="btn-schedule">Solve!</button>
   </section>
 
-  <section style="border:1px solid #ccc; padding:1rem; margin-top:1rem;">
+  <section>
     <h2>Schedule Result</h2>
     <!-- We'll show an error if the solver returns text that's not valid JSON -->
     <div id="output" class=""></div>
@@ -93,33 +96,18 @@
   </section>
 
   <script type="module" src="scheduler.js"></script>
-  <div id="edit-modal"
-     style="
-        display: none;
-        position: fixed;
-        top: 0; left: 0; right: 0; bottom: 0;
-        background: rgba(0,0,0,0.5);
-        z-index: 1000;
-     ">
-  <div style="
-        position: absolute;
-        top: 50%;
-        left: 50%;
-        transform: translate(-50%, -50%);
-        background: white;
-        padding: 20px;
-        border-radius: 8px;
-        width: 300px;
-      ">
-    <h3 id="edit-modal-title">Edit Task</h3>
-    <div id="edit-modal-content">
-      <!-- Filled dynamically by JS -->
-    </div>
-    <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
-      <button id="edit-modal-cancel">Cancel</button>
-      <button id="edit-modal-save">Save</button>
+  
+  <div id="edit-modal" style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000;">
+    <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); background: white; padding: 20px; border-radius: 8px; width: 300px;">
+      <h3 id="edit-modal-title">Edit Task</h3>
+      <div id="edit-modal-content">
+        <!-- Filled dynamically by JS -->
+      </div>
+      <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+        <button id="edit-modal-cancel">Cancel</button>
+        <button id="edit-modal-save">Save</button>
+      </div>
     </div>
   </div>
-</div>
 </body>
 </html>
