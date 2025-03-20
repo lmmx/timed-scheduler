@@ -112,17 +112,21 @@
         const tdNum = document.createElement("td");
         tdNum.textContent = idx + 1;
         tr.appendChild(tdNum);
-
+        
         // Name
         const tdName = document.createElement("td");
+        tdName.className = "editable";
         tdName.textContent = task.name;
-	tdName.style.cursor = "pointer";
-	// On click, open modal to edit name
-	tdName.onclick = () => openEditModal("name", idx, task.name);
+        tdName.style.cursor = "pointer";
+        // On click, open modal to edit name
+        tdName.onclick = () => openEditModal("name", idx, task.name);
         tr.appendChild(tdName);
-
+        
         // Window type
         const tdType = document.createElement("td");
+        tdType.className = "editable";
+        tdType.style.cursor = "pointer";
+        tdType.onclick = () => openEditModal("type", idx, wtype);
         let wtype = "?";
         if (task.windows?.[0]?.Anchor !== undefined) {
           wtype = "Anchor";
@@ -134,6 +138,16 @@
 
         // Time(s)
         const tdTime = document.createElement("td");
+	tdTime.className = "editable";
+	tdTime.style.cursor = "pointer";
+	tdTime.onclick = () => {
+          if (wtype === "Anchor") {
+            openEditModal("anchor-time", idx, formatMinutes(task.windows[0].Anchor));
+          } else if (wtype === "Range") {
+            const [start, end] = task.windows[0].Range;
+            openEditModal("range-time", idx, `${formatMinutes(start)} - ${formatMinutes(end)}`);
+          }
+        };
         if (wtype === "Anchor") {
           const anchorVal = task.windows[0].Anchor;
           tdTime.textContent = formatMinutes(anchorVal);
@@ -147,6 +161,7 @@
 
         const tdActions = document.createElement("td");
         const actionsDiv = document.createElement("div");
+	actionsDiv.className = "row-actions";
         actionsDiv.style.display = "flex";
         actionsDiv.style.gap = "5px";
 
@@ -183,15 +198,16 @@
 
     function openEditModal(field, index, value) {
       currentEditingTask = { index, field, value };
-
+      
       const modal = document.getElementById("edit-modal");
       const modalTitle = document.getElementById("edit-modal-title");
       const modalContent = document.getElementById("edit-modal-content");
-
-      modalTitle.textContent = `Edit ${field}`;
+      
       modalContent.innerHTML = "";  // clear previous contents
-
+      
       if (field === "name") {
+        modalTitle.textContent = "Edit Task Name";
+        
         const input = document.createElement("input");
         input.type = "text";
         input.id = "edit-field-input";
@@ -199,7 +215,81 @@
         input.style.width = "100%";
         modalContent.appendChild(input);
       }
-
+      else if (field === "type") {
+        modalTitle.textContent = "Edit Window Type";
+        
+        const select = document.createElement("select");
+        select.id = "edit-type-select";
+        select.style.width = "100%";
+        
+        const anchorOption = document.createElement("option");
+        anchorOption.value = "anchor";
+        anchorOption.textContent = "Anchor";
+        
+        const rangeOption = document.createElement("option");
+        rangeOption.value = "range";
+        rangeOption.textContent = "Range";
+        
+        select.appendChild(anchorOption);
+        select.appendChild(rangeOption);
+        
+        // Set current value
+        const task = tasks[index];
+        if (task.windows[0].Anchor !== undefined) {
+          select.value = "anchor";
+        } else {
+          select.value = "range";
+        }
+        
+        modalContent.appendChild(select);
+      }
+      else if (field === "anchor-time") {
+        modalTitle.textContent = "Edit Anchor Time";
+        
+        const input = document.createElement("input");
+        input.type = "text";
+        input.id = "edit-time-input";
+        input.value = value;
+        input.pattern = "\\d{1,2}:\\d{2}";
+        input.title = "Format: HH:MM";
+        input.style.width = "100%";
+        
+        modalContent.appendChild(input);
+      }
+      else if (field === "range-time") {
+        modalTitle.textContent = "Edit Time Range";
+        
+        const [start, end] = value.split(" - ");
+        
+        const startLabel = document.createElement("label");
+        startLabel.textContent = "Start:";
+        
+        const startInput = document.createElement("input");
+        startInput.type = "text";
+        startInput.id = "edit-start-input";
+        startInput.value = start;
+        startInput.pattern = "\\d{1,2}:\\d{2}";
+        startInput.title = "Format: HH:MM";
+        startInput.style.width = "100%";
+        
+        const endLabel = document.createElement("label");
+        endLabel.textContent = "End:";
+        endLabel.style.marginTop = "10px";
+        
+        const endInput = document.createElement("input");
+        endInput.type = "text";
+        endInput.id = "edit-end-input";
+        endInput.value = end;
+        endInput.pattern = "\\d{1,2}:\\d{2}";
+        endInput.title = "Format: HH:MM";
+        endInput.style.width = "100%";
+        
+        modalContent.appendChild(startLabel);
+        modalContent.appendChild(startInput);
+        modalContent.appendChild(endLabel);
+        modalContent.appendChild(endInput);
+      }
+      
       modal.style.display = "block";
     }
 
@@ -209,16 +299,66 @@
 
     function saveModalChanges() {
       const { index, field } = currentEditingTask;
-
+      const task = tasks[index];
+      
       if (field === "name") {
         const newValue = document.getElementById("edit-field-input").value.trim();
         if (newValue) {
-          tasks[index].name = newValue;
-          renderTasks();
+          task.name = newValue;
         }
       }
-
+      else if (field === "type") {
+        const newType = document.getElementById("edit-type-select").value;
+        
+        // Convert the window type
+        if (newType === "anchor") {
+          // If switching from range to anchor, use the midpoint
+          if (task.windows[0].Range) {
+            const [start, end] = task.windows[0].Range;
+            const midpoint = Math.floor((start + end) / 2);
+            task.windows[0] = { Anchor: midpoint };
+          }
+        } 
+        else if (newType === "range") {
+          // If switching from anchor to range, create a range around it
+          if (task.windows[0].Anchor) {
+            const anchor = task.windows[0].Anchor;
+            task.windows[0] = { Range: [Math.max(0, anchor - 60), anchor + 60] };
+          }
+        }
+      }
+      else if (field === "anchor-time") {
+        const timeStr = document.getElementById("edit-time-input").value.trim();
+        if (timeStr.match(/^\d{1,2}:\d{2}$/)) {
+          task.windows[0].Anchor = parseHHMM(timeStr);
+        } else {
+          alert("Please use HH:MM format");
+          return;
+        }
+      }
+      else if (field === "range-time") {
+        const startStr = document.getElementById("edit-start-input").value.trim();
+        const endStr = document.getElementById("edit-end-input").value.trim();
+        
+        if (!startStr.match(/^\d{1,2}:\d{2}$/) || !endStr.match(/^\d{1,2}:\d{2}$/)) {
+          alert("Please use HH:MM format");
+          return;
+        }
+        
+        const startMin = parseHHMM(startStr);
+        const endMin = parseHHMM(endStr);
+        
+        if (endMin <= startMin) {
+          alert("End time must be later than start time");
+          return;
+        }
+        
+        task.windows[0].Range = [startMin, endMin];
+      }
+      
+      // Close the modal and re-render
       closeModal();
+      renderTasks();
     }
 
     function moveTask(index, direction) {
