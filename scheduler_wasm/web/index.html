@@ -8,6 +8,21 @@
 <body>
   <h1>WASM Scheduler Demo</h1>
 
+  <!-- Day settings panel -->
+  <section style="border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem;">
+    <h2>Schedule Settings</h2>
+    <div style="display: flex; gap: 20px; align-items: center;">
+      <div>
+        <label for="day-start">Day Start:</label>
+        <input type="text" id="day-start" value="08:00" pattern="\d{1,2}:\d{2}" title="Format: HH:MM">
+      </div>
+      <div>
+        <label for="day-end">Day End:</label>
+        <input type="text" id="day-end" value="18:00" pattern="\d{1,2}:\d{2}" title="Format: HH:MM">
+      </div>
+    </div>
+  </section>
+
   <!-- Task creation form -->
   <section style="border: 1px solid #ccc; padding: 1rem; margin-bottom: 1rem;">
     <h2>Add a Task</h2>
@@ -469,9 +484,34 @@
     }
 
     function solveSchedule() {
-      // Convert tasks array to JSON string
-      const jsonInput = JSON.stringify(tasks);
-
+      // Get day start and end times
+      const dayStartElem = document.getElementById("day-start");
+      const dayEndElem = document.getElementById("day-end");
+      
+      // Validate inputs
+      if (!dayStartElem.value.match(/^\d{1,2}:\d{2}$/) || !dayEndElem.value.match(/^\d{1,2}:\d{2}$/)) {
+        alert("Day start and end times must be in HH:MM format");
+        return;
+      }
+      
+      const dayStartMin = parseHHMM(dayStartElem.value);
+      const dayEndMin = parseHHMM(dayEndElem.value);
+      
+      if (dayEndMin <= dayStartMin) {
+        alert("Day end time must be after day start time");
+        return;
+      }
+      
+      // Build the config object
+      const config = {
+        tasks: tasks,
+        dayStart: dayStartMin,
+        dayEnd: dayEndMin
+      };
+      
+      // Convert to JSON string
+      const jsonInput = JSON.stringify(config);
+    
       // Call the WASM schedule function
       const result = schedule_from_json(jsonInput);
 

@@ -1,18 +1,21 @@
 pub mod domain;
 
-use good_lp::{
-    variables, variable, constraint, default_solver,
-    SolverModel, Solution, Expression, Variable
-};
 use domain::{Entity, WindowSpec};
+use good_lp::{
+    constraint, default_solver, variable, variables, Expression, Solution, SolverModel, Variable,
+};
 
 /// Solve a minimal scheduling problem using `good_lp`.
-/// - Schedules each `Entity` within 08:00–18:00.
+/// - Schedules each `Entity` within the specified day window (default 08:00–18:00).
 /// - Enforces each entity's *first* window (anchor ±30 min or range).
 /// - Ensures tasks are at least 30 min apart in sorted order.
-pub fn solve_schedule(entities: &[Entity]) -> Result<Vec<(String, f64)>, String> {
-    let day_start = 8 * 60;  // 08:00
-    let day_end   = 18 * 60; // 18:00
+pub fn solve_schedule(
+    entities: &[Entity],
+    day_start_minutes: Option<i32>,
+    day_end_minutes: Option<i32>,
+) -> Result<Vec<(String, f64)>, String> {
+    let day_start = day_start_minutes.unwrap_or(8 * 60); // Default: 08:00
+    let day_end = day_end_minutes.unwrap_or(18 * 60); // Default: 18:00
 
     // 1) Create the variables container
     let mut vars = variables!();
@@ -21,11 +24,7 @@ pub fn solve_schedule(entities: &[Entity]) -> Result<Vec<(String, f64)>, String>
     let mut entity_vars: Vec<(&Entity, Variable)> = Vec::new();
     for e in entities {
         // Create a variable representing the "start minute" of this entity
-        let var = vars.add(
-            variable()
-                .min(day_start as f64)
-                .max(day_end as f64)
-        );
+        let var = vars.add(variable().min(day_start as f64).max(day_end as f64));
         entity_vars.push((e, var));
     }
 
@@ -44,13 +43,13 @@ pub fn solve_schedule(entities: &[Entity]) -> Result<Vec<(String, f64)>, String>
                     let lower = (*anchor - 30).max(day_start) as f64;
                     let upper = (*anchor + 30).min(day_end) as f64;
                     problem = problem
-                        .with(constraint!( *var >= lower ))
-                        .with(constraint!( *var <= upper ));
+                        .with(constraint!(*var >= lower))
+                        .with(constraint!(*var <= upper));
                 }
                 WindowSpec::Range(start, end) => {
                     problem = problem
-                        .with(constraint!( *var >= *start as f64 ))
-                        .with(constraint!( *var <= *end   as f64 ));
+                        .with(constraint!(*var >= *start as f64))
+                        .with(constraint!(*var <= *end as f64));
                 }
             }
         }
