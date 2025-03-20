@@ -1,0 +1,16 @@
+[[bin]]
+name = "scheduler_core"
+path = "src/main.rs"
+
+[dependencies]
+good_lp = {version = "1.12.0", features = ["microlp"], default-features = false}
+serde = {version = "1.0", features = ["derive"]}
+
+[lib]
+name = "scheduler_core"
+path = "src/lib.rs"
+
+[package]
+name = "scheduler_core"
+version = "0.1.0"
+edition = "2021"
