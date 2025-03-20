@@ -122,12 +122,12 @@ label {
   .top-container {
     flex-direction: column;
   }
-  
+
   .settings-section {
     flex: 1 1 auto;
     width: 100%;
   }
-  
+
   .settings-grid {
     grid-template-columns: 1fr 1fr;
   }

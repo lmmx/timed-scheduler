@@ -392,28 +392,28 @@ function solveSchedule() {
   // Get day start and end times
   const dayStartElem = document.getElementById("day-start");
   const dayEndElem = document.getElementById("day-end");
-  
+
   // Validate inputs
   if (!dayStartElem.value.match(/^\d{1,2}:\d{2}$/) || !dayEndElem.value.match(/^\d{1,2}:\d{2}$/)) {
     alert("Day start and end times must be in HH:MM format");
     return;
   }
-  
+
   const dayStartMin = parseHHMM(dayStartElem.value);
   const dayEndMin = parseHHMM(dayEndElem.value);
-  
+
   if (dayEndMin <= dayStartMin) {
     alert("Day end time must be after day start time");
     return;
   }
-  
+
   // Build the config object
   const config = {
     tasks: tasks,
     dayStart: dayStartMin,
     dayEnd: dayEndMin
   };
-  
+
   // Convert to JSON string
   const jsonInput = JSON.stringify(config);
 
