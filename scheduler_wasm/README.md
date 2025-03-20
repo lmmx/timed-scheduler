@@ -41,17 +41,13 @@ cargo install wasm-pack
 cargo install wasm-bindgen-cli
 ```
 
-Build for WASM
+Build for WASM (**from the workspace root, not this directory**),
+then run the wasm-bindgen command on the resulting binary:
 
 ```bash
-cargo build --release --target wasm32-unknown-unknown
-```
-
-Then run the wasm-bindgen command on the resulting binary:
-
-```bash
-wasm-bindgen target/wasm32-unknown-unknown/release/generate_schedule_milp_wasm.wasm \
-  --out-dir web --target web
+cargo build --release --target wasm32-unknown-unknown -p scheduler_wasm
+wasm-bindgen target/wasm32-unknown-unknown/release/scheduler_wasm.wasm \
+  --out-dir scheduler_wasm/web --target web
 ```
 
 Now you've successfully generated a WASM module and some JS glue code. You get a `web/` directory
@@ -60,6 +56,7 @@ with 2 key files:
 - `generate_schedule_milp_wasm.js` (auto-generated JavaScript bindings)
 - `generate_schedule_milp_wasm_bg.wasm` (compiled Wasm binary)
 
+If you `cd scheduler_wasm/web` and run `python3 -m http.server 8000` you'll be able to use your app.
 
 ## Usage
 

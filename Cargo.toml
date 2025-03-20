@@ -1,6 +1,20 @@
 [workspace]
 members = [
     "scheduler_core",
-    "generate_schedule_milp_wasm"
+    "scheduler_wasm"
 ]
 resolver = "2"
+
+[profile.dev]
+opt-level = 0
+lto = false
+codegen-units = 256
+panic = "abort"
+debug = false
+strip = "debuginfo"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
