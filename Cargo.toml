@@ -1,10 +1,3 @@
-[workspace]
-members = [
-    "scheduler_core",
-    "scheduler_wasm"
-]
-resolver = "2"
-
 [profile.dev]
 opt-level = 0
 lto = false
@@ -18,3 +11,10 @@ opt-level = 3
 lto = true
 codegen-units = 1
 strip = true
+
+[workspace]
+members = [
+  "scheduler_core",
+  "scheduler_wasm"
+]
+resolver = "2"
