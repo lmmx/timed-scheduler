@@ -157,12 +157,12 @@
         tr.appendChild(tdTime);
 
         // Actions container with Up/Down/X:
-        
+
         const tdActions = document.createElement("td");
         const actionsDiv = document.createElement("div");
         actionsDiv.style.display = "flex";
         actionsDiv.style.gap = "5px";
-        
+
         // Up button (only if idx > 0, because the first item can't move up)
         if (idx > 0) {
           const upBtn = document.createElement("button");
@@ -170,7 +170,7 @@
           upBtn.onclick = () => moveTask(idx, -1);
           actionsDiv.appendChild(upBtn);
         }
-        
+
         // Down button (only if not the last item)
         if (idx < tasks.length - 1) {
           const downBtn = document.createElement("button");
@@ -178,13 +178,13 @@
           downBtn.onclick = () => moveTask(idx, 1);
           actionsDiv.appendChild(downBtn);
         }
-        
+
         // Remove button
         const removeBtn = document.createElement("button");
         removeBtn.textContent = "X";
         removeBtn.onclick = () => removeTask(idx);
         actionsDiv.appendChild(removeBtn);
-        
+
         tdActions.appendChild(actionsDiv);
         tr.appendChild(tdActions);
 
@@ -193,17 +193,17 @@
     }
 
     let currentEditingTask = { index: -1, field: "", value: "" };
-    
+
     function openEditModal(field, index, value) {
       currentEditingTask = { index, field, value };
-    
+
       const modal = document.getElementById("edit-modal");
       const modalTitle = document.getElementById("edit-modal-title");
       const modalContent = document.getElementById("edit-modal-content");
-    
+
       modalTitle.textContent = `Edit ${field}`;
       modalContent.innerHTML = "";  // clear previous contents
-    
+
       if (field === "name") {
         const input = document.createElement("input");
         input.type = "text";
@@ -212,17 +212,17 @@
         input.style.width = "100%";
         modalContent.appendChild(input);
       }
-    
+
       modal.style.display = "block";
     }
-    
+
     function closeModal() {
       document.getElementById("edit-modal").style.display = "none";
     }
-    
+
     function saveModalChanges() {
       const { index, field } = currentEditingTask;
-    
+
       if (field === "name") {
         const newValue = document.getElementById("edit-field-input").value.trim();
         if (newValue) {
@@ -230,7 +230,7 @@
           renderTasks();
         }
       }
-    
+
       closeModal();
     }
 
