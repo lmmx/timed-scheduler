@@ -129,6 +129,9 @@
         // Name
         const tdName = document.createElement("td");
         tdName.textContent = task.name;
+	tdName.style.cursor = "pointer";
+	// On click, open modal to edit name
+	tdName.onclick = () => openEditModal("name", idx, task.name);
         tr.appendChild(tdName);
 
         // Window type
@@ -164,6 +167,49 @@
         tbody.appendChild(tr);
       });
     }
+
+    let currentEditingTask = { index: -1, field: "", value: "" };
+    
+    function openEditModal(field, index, value) {
+      currentEditingTask = { index, field, value };
+    
+      const modal = document.getElementById("edit-modal");
+      const modalTitle = document.getElementById("edit-modal-title");
+      const modalContent = document.getElementById("edit-modal-content");
+    
+      modalTitle.textContent = `Edit ${field}`;
+      modalContent.innerHTML = "";  // clear previous contents
+    
+      if (field === "name") {
+        const input = document.createElement("input");
+        input.type = "text";
+        input.id = "edit-field-input";
+        input.value = value;
+        input.style.width = "100%";
+        modalContent.appendChild(input);
+      }
+    
+      modal.style.display = "block";
+    }
+    
+    function closeModal() {
+      document.getElementById("edit-modal").style.display = "none";
+    }
+    
+    function saveModalChanges() {
+      const { index, field } = currentEditingTask;
+    
+      if (field === "name") {
+        const newValue = document.getElementById("edit-field-input").value.trim();
+        if (newValue) {
+          tasks[index].name = newValue;
+          renderTasks();
+        }
+      }
+    
+      closeModal();
+    }
+
 
     // Remove a task by index
     function removeTask(index) {
@@ -304,6 +350,8 @@
       // Hook up button events
       document.getElementById("btn-add-task").onclick = addTask;
       document.getElementById("btn-schedule").onclick = solveSchedule;
+      document.getElementById("edit-modal-save").onclick = saveModalChanges;
+      document.getElementById("edit-modal-cancel").onclick = closeModal;
 
       // Render initial table
       renderTasks();
@@ -311,5 +359,33 @@
 
     run();
   </script>
+  <div id="edit-modal"
+     style="
+        display: none;
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.5);
+        z-index: 1000;
+     ">
+  <div style="
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        background: white;
+        padding: 20px;
+        border-radius: 8px;
+        width: 300px;
+      ">
+    <h3 id="edit-modal-title">Edit Task</h3>
+    <div id="edit-modal-content">
+      <!-- Filled dynamically by JS -->
+    </div>
+    <div style="margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
+      <button id="edit-modal-cancel">Cancel</button>
+      <button id="edit-modal-save">Save</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
