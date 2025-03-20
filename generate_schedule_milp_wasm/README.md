@@ -1,6 +1,6 @@
 # Timed Scheduler
 
-A **mixed‐integer linear programming (MILP)** tool for scheduling events (e.g. medications and meals) under various timing rules. It merges constraints like “≥6 h apart,” “≥1 h before [some category],” or “≥2 h after [some category]” into **big‐M disjunctions** when both apply to the same pair, ensuring those conditions are treated as **OR** rather than **AND**. If constraints are contradictory, the solver finds it infeasible; otherwise, it yields a feasible schedule.
+A **mixed‐integer linear programming (MILP)** tool built with WASM bindings for scheduling events (e.g. medications and meals) under various timing rules. It merges constraints like “≥6 h apart,” “≥1 h before [some category],” or “≥2 h after [some category]” into **big‐M disjunctions** when both apply to the same pair, ensuring those conditions are treated as **OR** rather than **AND**. If constraints are contradictory, the solver finds it infeasible; otherwise, it yields a feasible schedule.
 
 The code supports an **Earliest** or **Latest** objective, plus additional constraints or soft penalties to encourage placing items within preferred windows (e.g., mealtimes) or distributing multiple daily instances across distinct windows (e.g., breakfast vs. dinner).
 
@@ -30,6 +30,36 @@ The code supports an **Earliest** or **Latest** objective, plus additional const
    - The code converts these lines into entity objects with constraints and then to ILP variables & constraints, all solved with [good_lp](https://docs.rs/good_lp) using the CBC solver by default.
 
 ---
+
+## Development
+
+Install the WebAssembly target (`wasm32-unknown-unknown`), `wasm-pack`, and the `wasm-bindgen-cli` tool.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-pack
+cargo install wasm-bindgen-cli
+```
+
+Build for WASM
+
+```bash
+cargo build --release --target wasm32-unknown-unknown
+```
+
+Then run the wasm-bindgen command on the resulting binary:
+
+```bash
+wasm-bindgen target/wasm32-unknown-unknown/release/generate_schedule_milp_wasm.wasm \
+  --out-dir web --target web
+```
+
+Now you've successfully generated a WASM module and some JS glue code. You get a `web/` directory
+with 2 key files:
+
+- `generate_schedule_milp_wasm.js` (auto-generated JavaScript bindings)
+- `generate_schedule_milp_wasm_bg.wasm` (compiled Wasm binary)
+
 
 ## Usage
 

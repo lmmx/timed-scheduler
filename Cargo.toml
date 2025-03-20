@@ -1,0 +1,6 @@
+[workspace]
+members = [
+    "scheduler_core",
+    "generate_schedule_milp_wasm"
+]
+resolver = "2"
