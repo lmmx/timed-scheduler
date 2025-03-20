@@ -54,7 +54,7 @@
     <button id="btn-add-task">Add Task</button>
   </section>
 
-  <!-- Table of tasks (no raw JSON) -->
+  <!-- Table of tasks -->
   <section style="border: 1px solid #ccc; padding: 1rem;">
     <h2>Task List</h2>
     <table id="task-table">
@@ -64,9 +64,10 @@
           <th>Name</th>
           <th>Window Type</th>
           <th>Time(s)</th>
+          <th>Remove</th> <!-- New column for Remove button -->
         </tr>
       </thead>
-      <tbody><!-- Populated dynamically --></tbody>
+      <tbody><!-- Dynamically populated --></tbody>
     </table>
 
     <button id="btn-schedule">Solve!</button>
@@ -74,7 +75,7 @@
 
   <section style="border:1px solid #ccc; padding:1rem; margin-top:1rem;">
     <h2>Schedule Result</h2>
-    <!-- We’ll render an “error” if the solver returns a string that’s not valid JSON -->
+    <!-- We'll show an error if the solver returns text that's not valid JSON -->
     <div id="output" class=""></div>
 
     <table id="schedule-table" style="display:none;">
@@ -92,20 +93,20 @@
   <script type="module">
     import init, { schedule_from_json } from "./scheduler_wasm.js";
 
-    // We'll keep tasks in a JavaScript array:
+    // We'll keep tasks in a JavaScript array
     let tasks = [
-      { name: "Task A", windows: [{ Anchor: 540 }] },        // 9:00
-      { name: "Lunch",  windows: [{ Anchor: 720 }] },        // 12:00
-      { name: "Task B", windows: [{ Range: [780, 900] }] }   // 13:00–15:00
+      { name: "Task A", windows: [{ Anchor: 540 }] },       // 9:00
+      { name: "Lunch",  windows: [{ Anchor: 720 }] },       // 12:00
+      { name: "Task B", windows: [{ Range: [780, 900] }] }  // 13:00–15:00
     ];
 
-    // Helper: parse "HH:MM" to integer minutes
+    // Helper: parse "HH:MM" -> integer minutes
     function parseHHMM(value) {
       const [hh, mm] = value.split(":").map(x => parseInt(x, 10));
       return hh * 60 + mm;
     }
 
-    // Convert integer minutes back to "HH:MM"
+    // Convert minutes back to "HH:MM"
     function formatMinutes(m) {
       const hh = Math.floor(m / 60);
       const mm = m % 60;
@@ -141,19 +142,33 @@
         tdType.textContent = wtype;
         tr.appendChild(tdType);
 
-        // Times (for Anchor, 1 time; for Range, 2 times)
+        // Time(s)
         const tdTime = document.createElement("td");
         if (wtype === "Anchor") {
           const anchorVal = task.windows[0].Anchor;
           tdTime.textContent = formatMinutes(anchorVal);
         } else if (wtype === "Range") {
-          const rangeVals = task.windows[0].Range;
-          tdTime.textContent = formatMinutes(rangeVals[0]) + " - " + formatMinutes(rangeVals[1]);
+          const [startVal, endVal] = task.windows[0].Range;
+          tdTime.textContent = `${formatMinutes(startVal)} - ${formatMinutes(endVal)}`;
         }
         tr.appendChild(tdTime);
 
+        // Remove button
+        const tdRemove = document.createElement("td");
+        const removeBtn = document.createElement("button");
+        removeBtn.textContent = "X";
+        removeBtn.onclick = () => removeTask(idx);
+        tdRemove.appendChild(removeBtn);
+        tr.appendChild(tdRemove);
+
         tbody.appendChild(tr);
       });
+    }
+
+    // Remove a task by index
+    function removeTask(index) {
+      tasks.splice(index, 1);
+      renderTasks();
     }
 
     // Add a new task based on form
@@ -207,6 +222,7 @@
       document.getElementById("range-start").value = "13:00";
       document.getElementById("range-end").value   = "15:00";
 
+      // Re-render table
       renderTasks();
     }
 
@@ -217,7 +233,7 @@
       tbody.innerHTML = "";
 
       scheduleData.forEach((item, idx) => {
-        // Each item is [ "Task Name", minutes ] or ( "Task Name", f64 )
+        // item is [ taskName, minutesFloat ]
         const tr = document.createElement("tr");
 
         // # column
@@ -233,7 +249,7 @@
         // Time
         const tdTime = document.createElement("td");
         const rawMinutes = item[1] || 0;
-        // Convert f64 to integer minutes, just rounding
+        // Convert f64 to integer
         const minutes = Math.round(rawMinutes);
         tdTime.textContent = formatMinutes(minutes);
         tr.appendChild(tdTime);
@@ -259,18 +275,18 @@
       outputEl.textContent = "";
 
       try {
-        // Attempt to parse the result as JSON (Vec<(String, f64)>) 
+        // Attempt to parse as JSON => e.g. [ ["Task A", 480.0], ... ]
         scheduleData = JSON.parse(result);
       } catch (err) {
-        // It's either an error message or "Infeasible"
+        // It's not valid JSON => an error message
         outputEl.classList.add("error");
         outputEl.textContent = result;
-        // Hide schedule table if any
+        // Hide schedule table
         document.getElementById("schedule-table").style.display = "none";
         return;
       }
 
-      // If we got here, it's parsed successfully. Render the table of results.
+      // If we got here, it's parsed successfully. Render the table of results
       renderScheduleResult(scheduleData);
     }
 
